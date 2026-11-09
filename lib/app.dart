@@ -1513,13 +1513,46 @@ class _CapturePageState extends State<CapturePage> {
   final input = TextEditingController();
   final speech = const MethodChannel('si.studyorbit/offline_speech');
   bool busy = false, listening = false;
+  bool stoppingSpeech = false;
+  String speechStatus = '', speechBaseText = '';
+  String? speechErrorCode;
   String? error, photoPath;
   Uint8List? photo;
   List<StudyTask>? drafts;
   @override
+  void initState() {
+    super.initState();
+    speech.setMethodCallHandler((call) async {
+      if (!mounted || !listening) return;
+      if (call.method == 'listening') {
+        setState(
+          () => speechStatus = 'Listening. Speak now, then tap Stop recording.',
+        );
+      } else if (call.method == 'partialResult' && call.arguments is String) {
+        setState(() {
+          input.text = _withTranscript(call.arguments as String);
+          speechStatus = 'Listening. Your words appear below.';
+        });
+      }
+    });
+  }
+
+  String _withTranscript(String transcript) =>
+      [speechBaseText, transcript.trim()].where((s) => s.isNotEmpty).join('\n');
+
+  Future<void> _cancelSpeech() async {
+    try {
+      await speech.invokeMethod<void>('cancel');
+    } catch (_) {
+      // The platform may have already released the speech session.
+    }
+  }
+
+  @override
   void dispose() {
+    speech.setMethodCallHandler(null);
+    if (listening) unawaited(_cancelSpeech());
     input.dispose();
-    if (listening) speech.invokeMethod<void>('cancel');
     super.dispose();
   }
 
@@ -1589,7 +1622,20 @@ class _CapturePageState extends State<CapturePage> {
 
   Future<void> dictate() async {
     if (listening) {
-      await speech.invokeMethod<void>('stop');
+      if (stoppingSpeech) return;
+      setState(() {
+        stoppingSpeech = true;
+        speechStatus = 'Finishing transcription…';
+      });
+      try {
+        await speech.invokeMethod<void>('stop');
+      } on PlatformException catch (e) {
+        fail(e.message ?? 'Unable to stop recording. Please try again.');
+        await _cancelSpeech();
+      } catch (_) {
+        fail('Unable to stop recording. Please try again.');
+        await _cancelSpeech();
+      }
       return;
     }
     if (!mobile) {
@@ -1601,23 +1647,39 @@ class _CapturePageState extends State<CapturePage> {
     setState(() {
       busy = true;
       listening = true;
+      stoppingSpeech = false;
+      speechBaseText = input.text.trim();
+      speechStatus =
+          'Preparing voice input. Allow microphone and speech access if asked.';
+      speechErrorCode = null;
       error = null;
     });
     try {
-      final result = await speech.invokeMethod<String>('recognize', {
-        'locale': 'en-US',
-      });
+      final result = await speech
+          .invokeMethod<String>('recognize', {'locale': 'en-US'})
+          .timeout(const Duration(seconds: 75));
       if (mounted && result != null && result.trim().isNotEmpty) {
-        setState(
-          () => input.text = [
-            input.text,
-            result,
-          ].where((s) => s.isNotEmpty).join('\n'),
+        setState(() => input.text = _withTranscript(result));
+      } else if (mounted &&
+          error == null &&
+          input.text.trim() == speechBaseText) {
+        fail(
+          'No speech was recognized. Tap Start voice input and speak clearly.',
         );
       }
     } on PlatformException catch (e) {
+      if (mounted) setState(() => speechErrorCode = e.code);
       fail(
         e.message ?? 'On-device speech recognition is unavailable. Use text input instead.',
+      );
+    } on MissingPluginException {
+      fail(
+        'Voice input is not connected in this app version. Install the latest TestFlight build.',
+      );
+    } on TimeoutException {
+      await _cancelSpeech();
+      fail(
+        'Voice input timed out. Check microphone permissions and try again.',
       );
     } catch (_) {
       fail(
@@ -1628,6 +1690,8 @@ class _CapturePageState extends State<CapturePage> {
         setState(() {
           busy = false;
           listening = false;
+          stoppingSpeech = false;
+          speechStatus = '';
         });
       }
     }
@@ -1744,12 +1808,42 @@ class _CapturePageState extends State<CapturePage> {
                   ],
                   if (mode == 2) ...[
                     FilledButton.icon(
-                      onPressed: busy && !listening ? null : dictate,
+                      onPressed: stoppingSpeech || busy && !listening
+                          ? null
+                          : dictate,
                       icon: Icon(listening ? Icons.stop : Icons.mic_none),
                       label: Text(
-                        listening ? 'Stop recording' : 'Start voice input',
+                        stoppingSpeech
+                            ? 'Finishing…'
+                            : listening
+                            ? 'Stop recording'
+                            : 'Start voice input',
                       ),
                     ),
+                    if (listening) ...[
+                      const SizedBox(height: 12),
+                      Text(speechStatus, semanticsLabel: speechStatus),
+                    ],
+                    if (error != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        error!,
+                        style: const TextStyle(color: Colors.redAccent),
+                      ),
+                      if (speechErrorCode == 'permission_denied')
+                        TextButton(
+                          onPressed: () async {
+                            try {
+                              await speech.invokeMethod<void>('openSettings');
+                            } catch (_) {
+                              fail(
+                                'Open your device Settings and allow Microphone and Speech Recognition for this app.',
+                              );
+                            }
+                          },
+                          child: const Text('Open Settings'),
+                        ),
+                    ],
                     const SizedBox(height: 12),
                     const Text(
                       'An English offline speech model must be installed. If unavailable, the app will let you know and will not use cloud recognition.',
@@ -1835,7 +1929,7 @@ class _CapturePageState extends State<CapturePage> {
                     label: const Text('Edit original text'),
                   ),
                 ],
-                if (error != null)
+                if (error != null && (mode != 2 || drafts != null))
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     child: Text(
