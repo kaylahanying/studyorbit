@@ -10,8 +10,22 @@ const speech = MethodChannel('si.studyorbit/offline_speech');
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
 
+  setUp(() {
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('si.studyorbit/task_understanding'),
+      (_) async => {
+        'available': false,
+        'message': 'Basic splitting is available.',
+      },
+    );
+  });
+
   tearDown(() {
     binding.defaultBinaryMessenger.setMockMethodCallHandler(speech, null);
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('si.studyorbit/task_understanding'),
+      null,
+    );
   });
 
   Future<void> openVoice(WidgetTester tester) async {

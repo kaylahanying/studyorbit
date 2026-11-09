@@ -12,6 +12,7 @@ import 'domain/planner.dart';
 import 'domain/parser.dart';
 import 'services/store.dart';
 import 'services/media_cleanup.dart';
+import 'services/task_understanding.dart';
 
 const ink = Color(0xFF222541),
     muted = Color(0xFF7B7D92),
@@ -1386,7 +1387,7 @@ class _HomeState extends State<Home> {
         ),
       const SizedBox(height: 20),
       const Text(
-        '$appDisplayName · MVP 1.0\nLocal scheduling and task extraction. AI models, subscriptions, and encrypted backups are not available yet.',
+        '$appDisplayName · MVP 1.0\nApple Intelligence drafts tasks on supported iPhones. Scheduling stays local. Subscriptions and encrypted backups are not available yet.',
         style: TextStyle(fontSize: 11, color: muted, height: 1.8),
       ),
     ],
@@ -1508,9 +1509,13 @@ class CapturePage extends StatefulWidget {
   State<CapturePage> createState() => _CapturePageState();
 }
 
-class _CapturePageState extends State<CapturePage> {
+class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
   late int mode = widget.mode;
   final input = TextEditingController();
+  final captureScroll = ScrollController();
+  final taskUnderstanding = TaskUnderstanding();
+  TaskModelAvailability? taskModel;
+  bool generatingDrafts = false, draftsUseAI = false;
   final speech = const MethodChannel('si.studyorbit/offline_speech');
   bool busy = false, listening = false;
   bool stoppingSpeech = false;
@@ -1522,6 +1527,8 @@ class _CapturePageState extends State<CapturePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_refreshTaskModel());
     speech.setMethodCallHandler((call) async {
       if (!mounted || !listening) return;
       if (call.method == 'listening') {
@@ -1537,6 +1544,88 @@ class _CapturePageState extends State<CapturePage> {
     });
   }
 
+  Future<void> _refreshTaskModel() async {
+    final status = await taskUnderstanding.availability();
+    if (mounted) setState(() => taskModel = status);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !busy) {
+      unawaited(_refreshTaskModel());
+    }
+  }
+
+  void _showDraftStart() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && captureScroll.hasClients) {
+        captureScroll.animateTo(
+          0,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  Future<void> _createDrafts({bool basic = false}) async {
+    if (busy) return;
+    final text = input.text.trim();
+    if (text.isEmpty) {
+      fail('Enter your study tasks first.');
+      return;
+    }
+    final useAI = !basic && taskModel?.available == true;
+    if (useAI && text.length > TaskUnderstanding.maxInputLength) {
+      fail(
+        'Describe up to 3,000 characters at a time. Split longer notes into smaller batches.',
+      );
+      return;
+    }
+    setState(() {
+      busy = true;
+      generatingDrafts = true;
+      error = null;
+      speechErrorCode = null;
+    });
+    _showDraftStart();
+    try {
+      final now = DateTime.now();
+      final result = useAI
+          ? await taskUnderstanding.understand(text, now)
+          : parseDrafts(text, now);
+      if (mounted) {
+        setState(() {
+          drafts = result;
+          draftsUseAI = useAI;
+        });
+        _showDraftStart();
+      }
+    } on PlatformException catch (e) {
+      fail(
+        e.message ?? 'Apple Intelligence could not draft your tasks. Try again or use basic splitting.',
+      );
+      await _refreshTaskModel();
+    } on TimeoutException {
+      fail(
+        'Task drafting took too long. Try a shorter description or use basic splitting.',
+      );
+    } on FormatException catch (e) {
+      fail(e.message);
+    } catch (_) {
+      fail(
+        'Unable to draft tasks. Your original text is still here. Try again or use basic splitting.',
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          busy = false;
+          generatingDrafts = false;
+        });
+      }
+    }
+  }
+
   String _withTranscript(String transcript) =>
       [speechBaseText, transcript.trim()].where((s) => s.isNotEmpty).join('\n');
 
@@ -1550,6 +1639,9 @@ class _CapturePageState extends State<CapturePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    if (generatingDrafts) unawaited(taskUnderstanding.cancel());
+    captureScroll.dispose();
     speech.setMethodCallHandler(null);
     if (listening) unawaited(_cancelSpeech());
     input.dispose();
@@ -1577,6 +1669,7 @@ class _CapturePageState extends State<CapturePage> {
     });
     TextRecognizer? recognizer;
     String? currentPath;
+    var understoodPhoto = false;
     try {
       final picked = await ImagePicker().pickImage(
         source: source,
@@ -1598,6 +1691,7 @@ class _CapturePageState extends State<CapturePage> {
         photoPath = picked.path;
         input.text = recognized.text;
       });
+      understoodPhoto = recognized.text.trim().isNotEmpty;
       if (recognized.text.trim().isEmpty) {
         fail('No text found. Try another photo or type your tasks.');
       }
@@ -1617,6 +1711,12 @@ class _CapturePageState extends State<CapturePage> {
         }
       }
       if (mounted) setState(() => busy = false);
+    }
+    if (mounted &&
+        understoodPhoto &&
+        error == null &&
+        taskModel?.available == true) {
+      await _createDrafts();
     }
   }
 
@@ -1654,12 +1754,14 @@ class _CapturePageState extends State<CapturePage> {
       speechErrorCode = null;
       error = null;
     });
+    var transcribed = false;
     try {
       final result = await speech
           .invokeMethod<String>('recognize', {'locale': 'en-US'})
           .timeout(const Duration(seconds: 75));
       if (mounted && result != null && result.trim().isNotEmpty) {
         setState(() => input.text = _withTranscript(result));
+        transcribed = true;
       } else if (mounted &&
           error == null &&
           input.text.trim() == speechBaseText) {
@@ -1695,6 +1797,9 @@ class _CapturePageState extends State<CapturePage> {
         });
       }
     }
+    if (mounted && transcribed && taskModel?.available == true) {
+      await _createDrafts();
+    }
   }
 
   Future<void> editDraft(int index) async {
@@ -1717,6 +1822,7 @@ class _CapturePageState extends State<CapturePage> {
     ),
     body: SafeArea(
       child: SingleChildScrollView(
+        controller: captureScroll,
         padding: const EdgeInsets.fromLTRB(22, 12, 22, 40),
         child: Center(
           child: ConstrainedBox(
@@ -1747,11 +1853,43 @@ class _CapturePageState extends State<CapturePage> {
                 Text(
                   drafts == null
                       ? 'Add homework, quiz corrections, exams, and preparation together.'
-                      : 'Drafts are extracted using local rules and may be inaccurate. Check each subject, date, and duration. Unrecognized dates default to tomorrow and durations to 30 minutes.',
+                      : draftsUseAI
+                      ? 'Apple Intelligence split your input into task drafts. Review the assignments, due dates, estimated time, and steps before adding them.'
+                      : 'Basic drafts use one task per line. Check each subject, date, and duration. Unrecognized dates default to tomorrow and durations to 30 minutes.',
                   style: const TextStyle(color: muted, fontSize: 13),
                 ),
                 const SizedBox(height: 22),
                 if (drafts == null) ...[
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            generatingDrafts
+                                ? 'Understanding and splitting your tasks…'
+                                : taskModel?.available == true
+                                ? 'Apple Intelligence · On device'
+                                : 'Task drafting',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            taskModel?.message ??
+                                'Checking Apple Intelligence availability…',
+                            style: const TextStyle(fontSize: 12, color: muted),
+                          ),
+                          if (taskModel?.available == false)
+                            TextButton(
+                              onPressed: busy ? null : _refreshTaskModel,
+                              child: const Text('Check again'),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
                   SegmentedButton<int>(
                     segments: const [
                       ButtonSegment(
@@ -1877,16 +2015,24 @@ class _CapturePageState extends State<CapturePage> {
                     enabled: !busy,
                     minLines: 7,
                     maxLines: 14,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Study tasks / Recognized text',
                       alignLabelWithHint: true,
-                      hintText: 'One task per line, for example:\nMath, quadratic functions due tomorrow, 45 minutes\nPhysics, exam the day after tomorrow, 60 minutes\nEnglish, preview the next lesson, 20 minutes',
+                      hintText: taskModel?.available == true
+                          ? 'For example: I have math exercises due tomorrow, a physics test on Friday, and an English essay to research and write this week.'
+                          : 'One task per line, for example:\nMath exercises due tomorrow, 30 minutes\nPhysics review today, 45 minutes',
                     ),
                   ),
                   const SizedBox(height: 14),
-                  const Text(
-                    'Tip: Use one task per line, today / tomorrow / the day after tomorrow, month/day, and minutes. Check complex dates in your drafts.',
-                    style: TextStyle(color: muted, fontSize: 11, height: 1.7),
+                  Text(
+                    taskModel?.available == true
+                        ? 'Describe everything in one go. Apple Intelligence separates assignments and breaks down larger tasks. Voice and photo input are drafted automatically when capture finishes.'
+                        : 'Basic splitting: use one task per line, today / tomorrow / the day after tomorrow, month/day, and minutes. Apple Intelligence is needed to understand a paragraph automatically.',
+                    style: const TextStyle(
+                      color: muted,
+                      fontSize: 11,
+                      height: 1.7,
+                    ),
                   ),
                   if (busy)
                     const Padding(
@@ -1941,24 +2087,19 @@ class _CapturePageState extends State<CapturePage> {
                     ),
                   ),
                 const SizedBox(height: 20),
+                if (drafts == null && error != null)
+                  TextButton(
+                    onPressed: busy ? null : () => _createDrafts(basic: true),
+                    child: const Text('Use basic splitting instead'),
+                  ),
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
-                    onPressed: busy
+                    onPressed: busy || taskModel == null
                         ? null
                         : () {
                             if (drafts == null) {
-                              if (input.text.trim().isEmpty) {
-                                fail('Enter your study tasks first.');
-                                return;
-                              }
-                              setState(() {
-                                drafts = parseDrafts(
-                                  input.text,
-                                  DateTime.now(),
-                                );
-                                error = null;
-                              });
+                              unawaited(_createDrafts());
                             } else if (drafts!.isEmpty) {
                               fail('Keep at least one task.');
                             } else {

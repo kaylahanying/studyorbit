@@ -3,6 +3,24 @@
 Internal codename: **StudyOrbit**. Package names, bundle identifiers, storage keys,
 and repository names retain `studyorbit`.
 
+## On-device task understanding
+
+On supported iPhones running iOS 26 or later, Apple Intelligence uses the native
+Foundation Models framework to interpret a paragraph and draft separate study
+tasks, including subjects, due dates, estimated durations, and steps. Large
+assignments can be broken into stages. Completed voice transcription and photo
+OCR automatically begin task drafting when the model is available. Typed input
+uses **Create task drafts**. Review and edit drafts before confirming them.
+
+Apple Intelligence must be enabled and its model downloaded. Availability is
+checked on the device; no API key, server, or cloud inference is used. Other
+devices retain explicitly labeled basic splitting (one task per line). Model
+failure preserves the original input and offers a manual basic fallback.
+The minimum deployment target stays iOS 15.5; Foundation Models is weak-linked
+and runtime-gated behind iOS 26 availability. Inputs are limited to 3,000
+characters and model output to 15 tasks per request. Dates and durations are
+validated before any drafts are displayed; model estimates still need review.
+
 面向高中生的 Flutter 学习计划 MVP。英文界面，支持 Android、iOS，以及用于演示文字录入流程的 Web 版本。由用户提供的《StudyOrbit 手机 App 商业计划（精简版）》实现。
 
 ## 运行
@@ -65,7 +83,7 @@ python3 -m http.server 8080 --bind 127.0.0.1 --directory build/web
 
 照片使用系统图片选择器生成的临时副本，默认在识别尝试结束后删除；可选择保留并在“我的”页面清理。原始相册文件不受影响。预览、转录和未确认草稿仅在当前录入页面内存中；语音不保存录音文件。确认后任务名称可能包含学生录入的原文，可单独删除任务或清空全部数据。系统层面的设备备份策略需要在正式发布前继续审核（Android 已关闭自动备份）。
 
-草稿提取和排程是本地规则，**未接入大语言模型**。默认截止日期为明天，用时为 30 分钟；支持 today、tomorrow、the day after tomorrow、月/日以及 minutes（兼容中文文字录入），复杂日期必须手动确认。任务拆分为通用步骤，可由学生修改。不得将规则提取称为完整 AI 理解。
+支持的 iPhone 使用 Apple Intelligence 本地大语言模型理解输入和拆分任务，详情见上方说明。其他设备可使用明确标注的基础规则：每行一个任务，默认截止日期为明天，用时为 30 分钟；支持 today、tomorrow、the day after tomorrow、月/日以及 minutes（兼容中文文字录入）。排程仍为本地规则。所有生成草稿都需要学生确认；基础规则不得称为 AI 理解。
 
 专注页面离开前台时自动暂停并保存；提醒只在专注页面打开时显示，**没有后台通知**。日历当前展示任务/考试的截止日期，没有重复课程编辑或外部学校平台同步。明日科目为学生自行更新的准备偏好，不是完整周期课表。没有订阅扣费、家庭账户、任务时间锁定、云端同步、长期学习分析或加密备份。不会显示伪造付费成功或 AI 结果。
 
