@@ -29,12 +29,14 @@ const subjects = [
   'Other',
 ];
 
+const appDisplayName = 'Study Executive Assistant';
+
 class StudyOrbitApp extends StatelessWidget {
   const StudyOrbitApp({super.key, required this.store});
   final StudyStore store;
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'StudyOrbit',
+    title: appDisplayName,
     locale: const Locale('en', 'US'),
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
@@ -337,25 +339,22 @@ class _HomeState extends State<Home> {
   );
   Widget _brand() => const SizedBox(
     width: 170,
-    child: FittedBox(
-      fit: BoxFit.scaleDown,
-      alignment: Alignment.centerLeft,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.blur_circular_rounded, color: violet, size: 30),
-          SizedBox(width: 8),
-          Text(
-            'StudyOrbit',
+    child: Row(
+      children: [
+        Icon(Icons.blur_circular_rounded, color: violet, size: 30),
+        SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            appDisplayName,
             style: TextStyle(
               color: ink,
-              fontSize: 21,
+              fontSize: 14,
               fontWeight: FontWeight.w800,
-              letterSpacing: -.8,
+              height: 1.2,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     ),
   );
   Widget _header(bool wide) => Padding(
@@ -1387,7 +1386,7 @@ class _HomeState extends State<Home> {
         ),
       const SizedBox(height: 20),
       const Text(
-        'StudyOrbit · MVP 1.0\nLocal scheduling and task extraction. AI models, subscriptions, and encrypted backups are not available yet.',
+        '$appDisplayName · MVP 1.0\nLocal scheduling and task extraction. AI models, subscriptions, and encrypted backups are not available yet.',
         style: TextStyle(fontSize: 11, color: muted, height: 1.8),
       ),
     ],

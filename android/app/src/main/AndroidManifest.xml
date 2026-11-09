@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <application
         android:allowBackup="false"
-        android:label="StudyOrbit"
+        android:label="Study Executive Assistant"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

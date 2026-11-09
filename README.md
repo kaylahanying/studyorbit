@@ -1,4 +1,7 @@
-# StudyOrbit
+# Study Executive Assistant
+
+Internal codename: **StudyOrbit**. Package names, bundle identifiers, storage keys,
+and repository names retain `studyorbit`.
 
 面向高中生的 Flutter 学习计划 MVP。英文界面，支持 Android、iOS，以及用于演示文字录入流程的 Web 版本。由用户提供的《StudyOrbit 手机 App 商业计划（精简版）》实现。
 

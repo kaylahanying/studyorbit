@@ -22,7 +22,7 @@ void main() {
       final store = StudyStore();
       await store.load();
       await tester.pumpWidget(StudyOrbitApp(store: store));
-      expect(find.text('StudyOrbit'), findsOneWidget);
+      expect(find.text('Study Executive Assistant'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.tap(find.text('Add study tasks'));
       await tester.pumpAndSettle();
