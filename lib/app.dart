@@ -1516,6 +1516,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
   final taskUnderstanding = TaskUnderstanding();
   TaskModelAvailability? taskModel;
   bool generatingDrafts = false, draftsUseAI = false;
+  String? draftingError;
   final speech = const MethodChannel('si.studyorbit/offline_speech');
   bool busy = false, listening = false;
   bool stoppingSpeech = false;
@@ -1586,6 +1587,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
       busy = true;
       generatingDrafts = true;
       error = null;
+      draftingError = null;
       speechErrorCode = null;
     });
     _showDraftStart();
@@ -1602,18 +1604,18 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
         _showDraftStart();
       }
     } on PlatformException catch (e) {
-      fail(
+      _failDraft(
         e.message ?? 'Apple Intelligence could not draft your tasks. Try again or use basic splitting.',
       );
       await _refreshTaskModel();
     } on TimeoutException {
-      fail(
+      _failDraft(
         'Task drafting took too long. Try a shorter description or use basic splitting.',
       );
     } on FormatException catch (e) {
-      fail(e.message);
+      _failDraft(e.message);
     } catch (_) {
-      fail(
+      _failDraft(
         'Unable to draft tasks. Your original text is still here. Try again or use basic splitting.',
       );
     } finally {
@@ -1623,6 +1625,15 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
           generatingDrafts = false;
         });
       }
+    }
+  }
+
+  void _failDraft(String message) {
+    if (mounted) {
+      setState(() {
+        error = message;
+        draftingError = message;
+      });
     }
   }
 
@@ -1666,6 +1677,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
     setState(() {
       busy = true;
       error = null;
+      draftingError = null;
     });
     TextRecognizer? recognizer;
     String? currentPath;
@@ -1753,6 +1765,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
           'Preparing voice input. Allow microphone and speech access if asked.';
       speechErrorCode = null;
       error = null;
+      draftingError = null;
     });
     var transcribed = false;
     try {
@@ -1880,6 +1893,23 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                                 'Checking Apple Intelligence availability…',
                             style: const TextStyle(fontSize: 12, color: muted),
                           ),
+                          if (generatingDrafts) ...[
+                            const SizedBox(height: 12),
+                            const LinearProgressIndicator(),
+                          ],
+                          if (draftingError != null) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              draftingError!,
+                              style: const TextStyle(color: Colors.redAccent),
+                            ),
+                            TextButton(
+                              onPressed: busy
+                                  ? null
+                                  : () => _createDrafts(basic: true),
+                              child: const Text('Use basic splitting instead'),
+                            ),
+                          ],
                           if (taskModel?.available == false)
                             TextButton(
                               onPressed: busy ? null : _refreshTaskModel,
@@ -1962,7 +1992,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                       const SizedBox(height: 12),
                       Text(speechStatus, semanticsLabel: speechStatus),
                     ],
-                    if (error != null) ...[
+                    if (error != null && draftingError == null) ...[
                       const SizedBox(height: 12),
                       Text(
                         error!,
@@ -2075,7 +2105,9 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                     label: const Text('Edit original text'),
                   ),
                 ],
-                if (error != null && (mode != 2 || drafts != null))
+                if (error != null &&
+                    draftingError == null &&
+                    (mode != 2 || drafts != null))
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     child: Text(
@@ -2087,7 +2119,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                     ),
                   ),
                 const SizedBox(height: 20),
-                if (drafts == null && error != null)
+                if (drafts == null && error != null && draftingError == null)
                   TextButton(
                     onPressed: busy ? null : () => _createDrafts(basic: true),
                     child: const Text('Use basic splitting instead'),

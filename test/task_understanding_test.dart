@@ -259,6 +259,10 @@ void main() {
         input,
       );
       expect(find.text('Try a shorter description.'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('Try a shorter description.')).dy,
+        lessThan(tester.getTopLeft(find.byType(TextField)).dy),
+      );
       expect(find.text('Use basic splitting instead'), findsOneWidget);
       expect(find.text('Review your task drafts'), findsNothing);
     },
