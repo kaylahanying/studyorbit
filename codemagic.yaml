@@ -49,6 +49,6 @@ workflows:
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         # Upload for internal testing without requesting external beta review.
         submit_to_testflight: false
-        beta_groups:
-          - Internal
+        # The Internal group automatically receives every build in App Store
+        # Connect. Apple's API rejects assigning an internal group manually.
         submit_to_app_store: false

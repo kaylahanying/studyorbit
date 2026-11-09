@@ -3,8 +3,11 @@
 The `ios-testflight` workflow builds the `main` branch on a macOS machine,
 runs analysis and tests, obtains App Store signing resources, builds an IPA,
 and uploads it for TestFlight. Start it manually after credentials are configured.
-It distributes builds to the existing **Internal** TestFlight group. It does
-not submit the app for external beta review or public App Store review.
+The existing **Internal** TestFlight group automatically receives every build
+through its App Store Connect settings. Do not list this internal group under
+`publishing.app_store_connect.beta_groups`: Apple's API rejects manual build
+assignment to internal groups. The workflow does not submit the app for
+external beta review or public App Store review.
 
 Create an environment variable group named `studyorbit_apple` in Codemagic,
 accessible to this app, with these values:
