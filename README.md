@@ -1,6 +1,6 @@
 # StudyOrbit
 
-面向高中生的 Flutter 学习计划 MVP。中文界面，支持 Android、iOS，以及用于演示文字录入流程的 Web 版本。由用户提供的《StudyOrbit 手机 App 商业计划（精简版）》实现。
+面向高中生的 Flutter 学习计划 MVP。英文界面，支持 Android、iOS，以及用于演示文字录入流程的 Web 版本。由用户提供的《StudyOrbit 手机 App 商业计划（精简版）》实现。
 
 ## 运行
 
@@ -26,7 +26,7 @@ python3 -m http.server 8080 --bind 127.0.0.1 --directory build/web
 
 ## 已实现
 
-- 文字批量录入、设备端拍照 OCR（中英文）、设备端中文语音输入。
+- 文字批量录入、设备端拍照 OCR（中英文）、设备端英文语音输入。
 - 录入 → 草稿提取 → 学生确认/编辑 → 添加任务；保留照片预览用于核对。
 - 科目、任务类型、截止日期、预计用时、难度、薄弱科目标记及可编辑步骤。
 - 16:00–21:00 自动排程：截止日期、薄弱科目、难度、明日课程和预计用时参与评分。
@@ -43,7 +43,7 @@ python3 -m http.server 8080 --bind 127.0.0.1 --directory build/web
 ### Android
 
 - 应用最低 Android 7.0 / API 24；需要 Android SDK、Java 17+ 和 Flutter 支持的构建环境。
-- **设备端语音要求 Android 12 / API 31+** 且设备报告支持 `createOnDeviceSpeechRecognizer`，并已具备中文离线模型。低版本和无模型设备不会回退云端。
+- **设备端语音要求 Android 12 / API 31+** 且设备报告支持 `createOnDeviceSpeechRecognizer`，并已具备英文离线模型。低版本和无模型设备不会回退云端。
 - 麦克风权限在首次语音录入时请求。拍照使用系统相机/图片选择器。
 - 中文 ML Kit 模型依赖已加入 `android/app/build.gradle.kts`。
 - 发行签名仍为 Flutter 模板的开发签名，发布前需配置正式签名。
@@ -54,7 +54,7 @@ python3 -m http.server 8080 --bind 127.0.0.1 --directory build/web
 - 已配置相机、相册、麦克风和语音权限说明；中文 ML Kit 依赖位于 `ios/Podfile`。
 - 语音仅在 `supportsOnDeviceRecognition == true` 时启动，并强制 `requiresOnDeviceRecognition = true`。
 - 第一次构建可执行 `flutter pub get`，在 `ios` 目录执行 `pod install`，用 Xcode 打开 `Runner.xcworkspace` 配置开发团队。
-- 本开发环境只有 Command Line Tools，没有完整 Xcode、Android SDK 或连接的手机，因此 **尚未编译原生包，也未验证真机相机/麦克风/OCR/原生语音通道**。
+- iOS 发行包已通过 Codemagic 构建并上传 TestFlight；尚未验证真机相机/麦克风/OCR/原生语音通道。
 
 ## 隐私与当前边界
 
@@ -62,7 +62,7 @@ python3 -m http.server 8080 --bind 127.0.0.1 --directory build/web
 
 照片使用系统图片选择器生成的临时副本，默认在识别尝试结束后删除；可选择保留并在“我的”页面清理。原始相册文件不受影响。预览、转录和未确认草稿仅在当前录入页面内存中；语音不保存录音文件。确认后任务名称可能包含学生录入的原文，可单独删除任务或清空全部数据。系统层面的设备备份策略需要在正式发布前继续审核（Android 已关闭自动备份）。
 
-草稿提取和排程是本地规则，**未接入大语言模型**。默认截止日期为明天，用时为 30 分钟；支持今天、明天、后天、月/日以及“分钟”，复杂日期必须手动确认。任务拆分为通用步骤，可由学生修改。不得将规则提取称为完整 AI 理解。
+草稿提取和排程是本地规则，**未接入大语言模型**。默认截止日期为明天，用时为 30 分钟；支持 today、tomorrow、the day after tomorrow、月/日以及 minutes（兼容中文文字录入），复杂日期必须手动确认。任务拆分为通用步骤，可由学生修改。不得将规则提取称为完整 AI 理解。
 
 专注页面离开前台时自动暂停并保存；提醒只在专注页面打开时显示，**没有后台通知**。日历当前展示任务/考试的截止日期，没有重复课程编辑或外部学校平台同步。明日科目为学生自行更新的准备偏好，不是完整周期课表。没有订阅扣费、家庭账户、任务时间锁定、云端同步、长期学习分析或加密备份。不会显示伪造付费成功或 AI 结果。
 

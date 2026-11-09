@@ -6,31 +6,38 @@ List<StudyTask> parseDrafts(String input, DateTime now) {
   return input.split(RegExp(r'[\n；;]+')).where((s) => s.trim().isNotEmpty).map((
     line,
   ) {
-    var subject = '其他';
+    final lower = line.toLowerCase();
+    var subject = 'Other';
     const aliases = {
-      '数学': ['数学', 'math', 'algebra', 'calculus'],
-      '英语': ['英语', 'english'],
-      '物理': ['物理', 'physics'],
-      '化学': ['化学', 'chemistry'],
-      '生物': ['生物', 'biology'],
-      '历史': ['历史', 'history'],
-      '语文': ['语文', 'chinese'],
+      'Math': ['数学', 'math', 'algebra', 'calculus'],
+      'English': ['英语', 'english'],
+      'Physics': ['物理', 'physics'],
+      'Chemistry': ['化学', 'chemistry'],
+      'Biology': ['生物', 'biology'],
+      'History': ['历史', 'history'],
+      'Chinese': ['语文', 'chinese'],
     };
     for (final entry in aliases.entries) {
-      if (entry.value.any((s) => line.toLowerCase().contains(s))) {
+      if (entry.value.any((s) => lower.contains(s))) {
         subject = entry.key;
         break;
       }
     }
     final duration = RegExp(
-      r'(\d+)\s*(?:分钟|min(?:utes)?)',
+      r'(\d+)\s*(?:分钟|mins?\b|minutes?\b)',
       caseSensitive: false,
     ).firstMatch(line);
     var due = dayOnly(now).add(const Duration(days: 1));
-    if (line.contains('今天') || line.toLowerCase().contains('today')) {
+    if (line.contains('今天') || RegExp(r'\btoday\b').hasMatch(lower)) {
       due = dayOnly(now);
     }
-    if (line.contains('后天')) due = dayOnly(now).add(const Duration(days: 2));
+    if (lower.contains('tomorrow')) {
+      due = dayOnly(now).add(const Duration(days: 1));
+    }
+    if (line.contains('后天') ||
+        RegExp(r'\b(?:the )?day after tomorrow\b').hasMatch(lower)) {
+      due = dayOnly(now).add(const Duration(days: 2));
+    }
     final date = RegExp(r'(\d{1,2})[月/\-](\d{1,2})日?').firstMatch(line);
     if (date != null) {
       final m = int.parse(date[1]!);
@@ -40,11 +47,17 @@ List<StudyTask> parseDrafts(String input, DateTime now) {
         if (candidate.month == m && candidate.day == d) due = candidate;
       }
     }
-    final kind = line.contains('考试') || line.toLowerCase().contains('exam')
+    final kind =
+        line.contains('考试') || RegExp(r'\b(?:exam|test|quiz)\b').hasMatch(lower)
         ? TaskKind.exam
-        : line.contains('预习')
+        : line.contains('预习') ||
+              RegExp(r'\b(?:preview|prepare|preparation|read ahead)\b')
+                  .hasMatch(lower)
         ? TaskKind.preview
-        : line.contains('复习') || line.contains('订正')
+        : line.contains('复习') ||
+              line.contains('订正') ||
+              RegExp(r'\b(?:review|revise|revision|correct|corrections)\b')
+                  .hasMatch(lower)
         ? TaskKind.review
         : TaskKind.homework;
     final minutes = duration == null
@@ -57,7 +70,14 @@ List<StudyTask> parseDrafts(String input, DateTime now) {
       due: due,
       minutes: minutes,
       kind: kind,
-      steps: minutes >= 60 ? ['整理要求与材料', '完成第一部分', '完成剩余内容', '检查与提交'] : [],
+      steps: minutes >= 60
+          ? [
+              'Gather instructions and materials',
+              'Complete the first part',
+              'Finish the remaining work',
+              'Check and submit',
+            ]
+          : [],
     );
   }).toList();
 }

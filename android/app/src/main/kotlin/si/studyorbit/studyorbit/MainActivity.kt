@@ -18,7 +18,7 @@ class MainActivity : FlutterActivity(), RecognitionListener {
     private var recognizer: SpeechRecognizer? = null
     private var pending: MethodChannel.Result? = null
     private val handler = Handler(Looper.getMainLooper())
-    private val timeout = Runnable { finish(null, "设备端识别超时，请重试或使用文字输入。") }
+    private val timeout = Runnable { finish(null, "On-device recognition timed out. Try again or use text input.") }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -27,9 +27,9 @@ class MainActivity : FlutterActivity(), RecognitionListener {
                 when (call.method) {
                     "recognize" -> {
                         if (pending != null) {
-                            result.error("busy", "语音识别正在进行。", null)
+                            result.error("busy", "Speech recognition is already running.", null)
                         } else if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
-                            result.error("offline_unavailable", "此设备不支持设备端识别。需要 Android 12+ 及中文离线模型，请改用文字输入。", null)
+                            result.error("offline_unavailable", "On-device recognition requires Android 12 or later and an English offline model. Use text input instead.", null)
                         } else {
                             pending = result
                             handler.postDelayed(timeout, 60000)
@@ -51,17 +51,17 @@ class MainActivity : FlutterActivity(), RecognitionListener {
             recognizer?.setRecognitionListener(this)
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
             }
             recognizer?.startListening(intent)
-        } catch (_: Exception) { finish(null, "无法启动设备端识别，请检查中文离线模型。") }
+        } catch (_: Exception) { finish(null, "Unable to start on-device recognition. Check the English offline model.") }
     }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 842) {
             if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) startOffline()
-            else finish(null, "麦克风权限未获批准。请改用文字输入。")
+            else finish(null, "Microphone access was denied. Use text input instead.")
         }
     }
     private fun finish(text: String?, error: String?) {
@@ -73,7 +73,7 @@ class MainActivity : FlutterActivity(), RecognitionListener {
         if (error != null) reply?.error("offline_speech", error, null) else reply?.success(text)
     }
     override fun onResults(results: Bundle?) { finish(results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull(), null) }
-    override fun onError(error: Int) { finish(null, "设备端识别失败（$error）。请检查中文离线模型，或改用文字输入。") }
+    override fun onError(error: Int) { finish(null, "On-device recognition failed ($error). Check the English offline model or use text input.") }
     override fun onReadyForSpeech(params: Bundle?) {}
     override fun onBeginningOfSpeech() {}
     override fun onRmsChanged(rmsdB: Float) {}

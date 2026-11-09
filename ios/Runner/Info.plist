@@ -67,12 +67,12 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>拍摄作业，在设备上识别学习任务。</string>
+	<string>Take photos of homework to recognize study tasks on your device.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>选择作业图片，在设备上提取文字。</string>
+	<string>Choose homework photos to extract text on your device.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>将口述学习任务转换为文字，仅使用设备端识别。</string>
+	<string>Convert spoken study tasks to text using on-device recognition only.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>在设备上将口述任务转换为可确认的文字草稿。</string>
+	<string>Turn spoken tasks into text drafts on your device for you to review.</string>
 </dict>
 </plist>

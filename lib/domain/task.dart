@@ -41,7 +41,7 @@ class StudyTask {
   factory StudyTask.fromJson(Map<String, dynamic> j) => StudyTask(
     id: j['id'] as String,
     title: j['title'] as String,
-    subject: j['subject'] as String,
+    subject: normalizeSubject(j['subject'] as String),
     due: DateTime.parse(j['due'] as String),
     minutes: j['minutes'] as int,
     kind: TaskKind.values[j['kind'] as int],
@@ -64,11 +64,58 @@ class HistoryEntry {
     'message': message,
     'time': time.toIso8601String(),
   };
-  factory HistoryEntry.fromJson(Map<String, dynamic> j) =>
-      HistoryEntry(j['message'] as String, DateTime.parse(j['time'] as String));
+  factory HistoryEntry.fromJson(Map<String, dynamic> j) => HistoryEntry(
+    englishHistoryMessage(j['message'] as String),
+    DateTime.parse(j['time'] as String),
+  );
 }
 
-String kindName(TaskKind kind) => ['作业', '考试', '复习', '预习'][kind.index];
+String englishHistoryMessage(String message) {
+  const prefixes = {
+    '完成：': 'Completed: ',
+    '重新打开：': 'Reopened: ',
+    '修改任务：': 'Edited task: ',
+    '删除任务：': 'Deleted task: ',
+    '延后至明天：': 'Deferred until tomorrow: ',
+  };
+  for (final entry in prefixes.entries) {
+    if (message.startsWith(entry.key)) {
+      return '${entry.value}${message.substring(entry.key.length)}';
+    }
+  }
+  final added = RegExp(r'^添加了 (\d+) 个任务$').firstMatch(message);
+  if (added != null) {
+    return 'Added ${added[1]} ${added[1] == '1' ? 'task' : 'tasks'}';
+  }
+  final focused = RegExp(
+    r'^专注 (\d+) 分 (\d+) 秒：(.*)$',
+    dotAll: true,
+  ).firstMatch(message);
+  if (focused != null) {
+    return 'Focused for ${focused[1]} min ${focused[2]} sec: ${focused[3]}';
+  }
+  if (message == '从当前时间重新排程') return 'Replanned from the current time';
+  return message;
+}
+
+String kindName(TaskKind kind) =>
+    ['Homework', 'Exam', 'Review', 'Preview'][kind.index];
+
+// Normalize labels saved by the original Chinese interface. User-entered task
+// titles and steps stay intact.
+String normalizeSubject(String subject) =>
+    const {
+      '数学': 'Math',
+      '英语': 'English',
+      '物理': 'Physics',
+      '化学': 'Chemistry',
+      '生物': 'Biology',
+      '历史': 'History',
+      '语文': 'Chinese',
+      '其他': 'Other',
+    }[subject] ??
+    subject;
+
 DateTime dayOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 String clockTime(DateTime d) =>
     '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';

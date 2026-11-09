@@ -46,24 +46,24 @@ private final class OfflineSpeech {
   }
   deinit { if let observer = observer { NotificationCenter.default.removeObserver(observer) } }
   func recognize(_ result: @escaping FlutterResult) {
-    guard reply == nil else { result(FlutterError(code: "busy", message: "语音识别正在进行。", details: nil)); return }
+    guard reply == nil else { result(FlutterError(code: "busy", message: "Speech recognition is already running.", details: nil)); return }
     reply = result
     SFSpeechRecognizer.requestAuthorization { [weak self] status in
       DispatchQueue.main.async {
         guard let self = self, self.reply != nil else { return }
-        guard status == .authorized else { self.fail("语音识别权限未获批准，请使用文字输入。"); return }
+        guard status == .authorized else { self.fail("Speech recognition access was denied. Use text input instead."); return }
         AVAudioSession.sharedInstance().requestRecordPermission { granted in
           DispatchQueue.main.async {
             guard self.reply != nil else { return }
-            if granted { self.start() } else { self.fail("麦克风权限未获批准，请使用文字输入。") }
+            if granted { self.start() } else { self.fail("Microphone access was denied. Use text input instead.") }
           }
         }
       }
     }
   }
   private func start() {
-    guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN")), recognizer.supportsOnDeviceRecognition, recognizer.isAvailable else {
-      fail("此设备暂不支持中文设备端识别。请安装离线语言模型，或使用文字输入。"); return
+    guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.supportsOnDeviceRecognition, recognizer.isAvailable else {
+      fail("English on-device recognition is unavailable. Install an offline language model or use text input."); return
     }
     self.recognizer = recognizer
     do {
@@ -80,7 +80,7 @@ private final class OfflineSpeech {
       task = recognizer.recognitionTask(with: request) { [weak self] response, error in
         DispatchQueue.main.async {
           if let response = response, response.isFinal { self?.finish(response.bestTranscription.formattedString) }
-          else if error != nil { self?.fail("设备端语音识别失败，请重试或使用文字输入。") }
+          else if error != nil { self?.fail("On-device speech recognition failed. Try again or use text input.") }
         }
       }
       engine.prepare()
@@ -88,13 +88,13 @@ private final class OfflineSpeech {
       let timeout = DispatchWorkItem { [weak self] in self?.stop() }
       self.timeout = timeout
       DispatchQueue.main.asyncAfter(deadline: .now() + 45, execute: timeout)
-    } catch { fail("无法启动麦克风或设备端识别。") }
+    } catch { fail("Unable to start the microphone or on-device recognition.") }
   }
   func stop() {
     engine.stop()
     request?.endAudio()
     timeout?.cancel()
-    let timeout = DispatchWorkItem { [weak self] in self?.fail("设备端识别超时，请使用文字输入。") }
+    let timeout = DispatchWorkItem { [weak self] in self?.fail("On-device recognition timed out. Use text input instead.") }
     self.timeout = timeout
     DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: timeout)
   }

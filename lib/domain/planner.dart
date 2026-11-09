@@ -74,14 +74,14 @@ class Planner {
       PlanBlock(
         DateTime(day.year, day.month, day.day, 18),
         DateTime(day.year, day.month, day.day, 18, 30),
-        '晚餐时间',
-        subtitle: '放下课本，好好吃饭',
+        'Dinner',
+        subtitle: 'Put your books away and enjoy your meal',
       ),
       PlanBlock(
         DateTime(day.year, day.month, day.day, 20, 40),
         end,
-        '自由时间',
-        subtitle: '给今天一个轻松的收尾',
+        'Free time',
+        subtitle: 'Wind down at the end of the day',
       ),
     ];
     var studySinceBreak = 0;
@@ -109,8 +109,8 @@ class Planner {
           PlanBlock(
             cursor,
             nextFixed.start,
-            '自主学习 / 休闲',
-            subtitle: '你的时间，由你决定',
+            'Independent study / Free time',
+            subtitle: 'Your time, your choice',
           ),
         );
         cursor = nextFixed.start;
@@ -119,7 +119,14 @@ class Planner {
       if (studySinceBreak >= 45) {
         final length = available < 10 ? available : 10;
         final until = cursor.add(Duration(minutes: length));
-        blocks.add(PlanBlock(cursor, until, '休息一下', subtitle: '远眺、喝水、活动身体'));
+        blocks.add(
+          PlanBlock(
+            cursor,
+            until,
+            'Take a break',
+            subtitle: 'Look away, drink water, and stretch',
+          ),
+        );
         cursor = until;
         studySinceBreak = 0;
         continue;

@@ -5,7 +5,8 @@
   "display": "standalone",
   "background_color": "#F7F8FC",
   "theme_color": "#7363D9",
-  "description": "高中生的个人学习计划：任务录入、晚间排程与专注计时。",
+  "description": "Your personal study planner: capture tasks, plan your evening, and focus.",
+  "lang": "en",
   "orientation": "portrait-primary",
   "prefer_related_applications": false,
   "icons": [

@@ -9,7 +9,7 @@ void main() {
       StudyTask(
         id: id,
         title: id,
-        subject: '数学',
+        subject: 'Math',
         due: day.add(Duration(days: due)),
         minutes: minutes,
         weak: weak,
@@ -25,8 +25,8 @@ void main() {
       if (b.taskId != null) expect(b.minutes, lessThanOrEqualTo(45));
       if (i > 0) expect(b.start, plan.blocks[i - 1].end);
     }
-    expect(plan.blocks.singleWhere((b) => b.title == '晚餐时间').minutes, 30);
-    expect(plan.blocks.singleWhere((b) => b.title == '自由时间').minutes, 20);
+    expect(plan.blocks.singleWhere((b) => b.title == 'Dinner').minutes, 30);
+    expect(plan.blocks.singleWhere((b) => b.title == 'Free time').minutes, 20);
     final scheduled = plan.blocks
         .where((b) => b.taskId != null)
         .fold<int>(0, (a, b) => a + b.minutes);
@@ -72,7 +72,7 @@ void main() {
     final from = DateTime(2026, 11, 2, 18, 15);
     final plan = Planner().generate([task('a', 120)], day, from: from);
     expect(plan.blocks.first.start, from);
-    expect(plan.blocks.first.title, '晚餐时间');
+    expect(plan.blocks.first.title, 'Dinner');
     expect(plan.blocks.first.minutes, 15);
     expect(plan.blocks.every((b) => !b.start.isBefore(from)), isTrue);
   });
@@ -86,12 +86,12 @@ void main() {
     expect(plan.unscheduledMinutes, {'a': 70});
   });
   test('Tomorrow courses influence equal priority tasks', () {
-    final english = task('eng', 30)..subject = '英语';
+    final english = task('eng', 30)..subject = 'English';
     final math = task('math', 30);
     final plan = Planner().generate(
       [math, english],
       day,
-      tomorrowSubjects: {'英语'},
+      tomorrowSubjects: {'English'},
     );
     expect(plan.blocks.first.taskId, 'eng');
   });
@@ -107,4 +107,37 @@ void main() {
     expect(drafts[2].minutes, 30);
     expect(drafts.map((t) => t.id).toSet().length, 4);
   });
+
+  test(
+    'English task input recognizes relative dates, subjects and task types',
+    () {
+      final drafts = parseDrafts(
+        'Math review today, 45 mins\n'
+        'Physics exam the day after tomorrow, 90 minutes\n'
+        'English preview tomorrow, 20 min\n'
+        'Chemistry corrections 11/5, 30 minutes',
+        day,
+      );
+      expect(drafts.map((t) => t.subject), [
+        'Math',
+        'Physics',
+        'English',
+        'Chemistry',
+      ]);
+      expect(drafts.map((t) => t.kind), [
+        TaskKind.review,
+        TaskKind.exam,
+        TaskKind.preview,
+        TaskKind.review,
+      ]);
+      expect(drafts.map((t) => t.due), [
+        day,
+        day.add(const Duration(days: 2)),
+        day.add(const Duration(days: 1)),
+        DateTime(2026, 11, 5),
+      ]);
+      expect(drafts.map((t) => t.minutes), [45, 90, 20, 30]);
+      expect(drafts[1].steps.first, 'Gather instructions and materials');
+    },
+  );
 }

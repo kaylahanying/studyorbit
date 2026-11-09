@@ -18,7 +18,16 @@ const ink = Color(0xFF222541),
     violet = Color(0xFF7363D9),
     mint = Color(0xFFCEE9DE),
     canvas = Color(0xFFF7F8FC);
-const subjects = ['数学', '英语', '物理', '化学', '生物', '历史', '语文', '其他'];
+const subjects = [
+  'Math',
+  'English',
+  'Physics',
+  'Chemistry',
+  'Biology',
+  'History',
+  'Chinese',
+  'Other',
+];
 
 class StudyOrbitApp extends StatelessWidget {
   const StudyOrbitApp({super.key, required this.store});
@@ -26,6 +35,7 @@ class StudyOrbitApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'StudyOrbit',
+    locale: const Locale('en', 'US'),
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
       useMaterial3: true,
@@ -79,12 +89,17 @@ class Home extends StatefulWidget {
 
 class _HomeState extends State<Home> {
   int tab = 0;
-  String filter = '全部';
+  String filter = 'All';
   DateTime selectedDay = dayOnly(DateTime.now());
   DateTime? planFrom;
   final planner = Planner();
   StudyStore get store => widget.store;
-  static const titles = ['今日轨道', '任务舱', '学习日历', '我的空间'];
+  static const titles = [
+    'Today\'s plan',
+    'Tasks',
+    'Study calendar',
+    'My space',
+  ];
   @override
   void initState() {
     super.initState();
@@ -112,7 +127,9 @@ class _HomeState extends State<Home> {
     try {
       await fn();
     } catch (_) {
-      toast('保存失败，请重试。${store.error ?? '请检查设备存储空间。'}');
+      toast(
+        'Unable to save. Please try again. ${store.error ?? 'Check your device storage.'}',
+      );
     }
   }
 
@@ -139,7 +156,7 @@ class _HomeState extends State<Home> {
       await action(() async {
         final i = store.tasks.indexWhere((t) => t.id == task.id);
         store.tasks[i] = edited;
-        await store.save('修改任务：${edited.title}');
+        await store.save('Edited task: ${edited.title}');
       });
     }
   }
@@ -202,19 +219,19 @@ class _HomeState extends State<Home> {
                 NavigationDestination(
                   icon: Icon(Icons.space_dashboard_outlined),
                   selectedIcon: Icon(Icons.space_dashboard_rounded),
-                  label: '今日',
+                  label: 'Today',
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.checklist_rounded),
-                  label: '任务',
+                  label: 'Tasks',
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.calendar_month_outlined),
-                  label: '日历',
+                  label: 'Calendar',
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.person_outline_rounded),
-                  label: '我的',
+                  label: 'My space',
                 ),
               ],
             ),
@@ -225,7 +242,7 @@ class _HomeState extends State<Home> {
               backgroundColor: ink,
               foregroundColor: Colors.white,
               icon: const Icon(Icons.add),
-              label: const Text('录入学习任务'),
+              label: const Text('Add study tasks'),
             ),
     );
   }
@@ -242,7 +259,7 @@ class _HomeState extends State<Home> {
             _brand(),
             const SizedBox(height: 8),
             const Text(
-              '让每一天，井然有序。',
+              'Make room for a better day.',
               style: TextStyle(color: muted, fontSize: 11),
             ),
             const SizedBox(height: 48),
@@ -287,12 +304,12 @@ class _HomeState extends State<Home> {
                   Icon(Icons.spa_outlined, color: Color(0xFF54846F)),
                   SizedBox(height: 12),
                   Text(
-                    '进步，不必着急',
+                    'Progress at your own pace',
                     style: TextStyle(fontWeight: FontWeight.w700),
                   ),
                   SizedBox(height: 8),
                   Text(
-                    '专注一件小事，也是在靠近更好的自己。',
+                    'One small task is one step forward.',
                     style: TextStyle(color: muted, fontSize: 12, height: 1.7),
                   ),
                 ],
@@ -307,8 +324,9 @@ class _HomeState extends State<Home> {
                   child: Icon(Icons.person_outline, color: ink, size: 20),
                 ),
                 SizedBox(width: 10),
-                Text('我的学习空间', style: TextStyle(fontSize: 12)),
-                Spacer(),
+                Expanded(
+                  child: Text('My study space', style: TextStyle(fontSize: 12)),
+                ),
                 Icon(Icons.lock_outline, size: 15, color: muted),
               ],
             ),
@@ -369,7 +387,7 @@ class _HomeState extends State<Home> {
               const Icon(Icons.calendar_today_outlined, size: 14, color: muted),
               const SizedBox(width: 7),
               Text(
-                '${DateTime.now().month} 月 ${DateTime.now().day} 日',
+                '${DateTime.now().month}/${DateTime.now().day}',
                 style: const TextStyle(fontSize: 12, color: muted),
               ),
             ],
@@ -402,12 +420,12 @@ class _HomeState extends State<Home> {
             ),
           ),
         const Text(
-          '一点点专注，一步步向前。',
+          'A little focus. A step forward.',
           style: TextStyle(color: muted, fontSize: 12, letterSpacing: 1),
         ),
         const SizedBox(height: 8),
         const Text(
-          '准备好进入学习轨道了吗？',
+          'Ready to get into your study rhythm?',
           style: TextStyle(
             color: ink,
             fontSize: 27,
@@ -422,9 +440,9 @@ class _HomeState extends State<Home> {
           children: [
             Expanded(
               child: _stat(
-                '待完成任务',
+                'To do',
                 '$pending',
-                '件',
+                'tasks',
                 Icons.checklist_rounded,
                 const Color(0xFFEFEDFB),
               ),
@@ -432,9 +450,9 @@ class _HomeState extends State<Home> {
             const SizedBox(width: 12),
             Expanded(
               child: _stat(
-                '已完成任务',
+                'Completed',
                 '$finished',
-                '件',
+                'tasks',
                 Icons.task_alt_rounded,
                 const Color(0xFFE6F2EC),
               ),
@@ -442,9 +460,9 @@ class _HomeState extends State<Home> {
             const SizedBox(width: 12),
             Expanded(
               child: _stat(
-                '累计专注',
+                'Focus time',
                 '$studyMinutes',
-                '分钟',
+                'min',
                 Icons.timelapse_rounded,
                 const Color(0xFFFFF2DF),
               ),
@@ -453,7 +471,7 @@ class _HomeState extends State<Home> {
         ),
         const SizedBox(height: 28),
         const Text(
-          '把任务交给轨道，把专注留给自己',
+          'Plan your tasks. Find your focus.',
           style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 12),
@@ -462,21 +480,26 @@ class _HomeState extends State<Home> {
             Expanded(
               child: _captureCard(
                 Icons.camera_alt_outlined,
-                '拍照录入',
-                '拍下作业与错题',
+                'Photo',
+                'Scan homework and corrections',
                 1,
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: _captureCard(Icons.mic_none_rounded, '语音录入', '说出今天的任务', 2),
+              child: _captureCard(
+                Icons.mic_none_rounded,
+                'Voice',
+                'Speak your study tasks',
+                2,
+              ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: _captureCard(
                 Icons.edit_note_rounded,
-                '文字录入',
-                '随时记下学习内容',
+                'Text',
+                'Write down what you need to do',
                 0,
               ),
             ),
@@ -537,7 +560,7 @@ class _HomeState extends State<Home> {
               ),
               const SizedBox(height: 16),
               const Text(
-                '学习有节奏，\n生活有留白。',
+                'Find your rhythm.\nMake room for life.',
                 style: TextStyle(
                   fontSize: 28,
                   height: 1.3,
@@ -548,8 +571,8 @@ class _HomeState extends State<Home> {
               const SizedBox(height: 12),
               Text(
                 pending == 0
-                    ? '从一个小任务开始，规划你的今晚。'
-                    : '$pending 个任务已就位，今晚也要照顾好自己。',
+                    ? 'Start with one small task and plan your evening.'
+                    : '$pending tasks ready. Make time for yourself, too.',
                 style: const TextStyle(color: muted, fontSize: 12),
               ),
               const SizedBox(height: 20),
@@ -557,7 +580,7 @@ class _HomeState extends State<Home> {
                 onPressed: () =>
                     pending == 0 ? capture() : setState(() => tab = 1),
                 icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                label: Text(pending == 0 ? '开启今晚的计划' : '查看我的任务'),
+                label: Text(pending == 0 ? 'Plan my evening' : 'View my tasks'),
               ),
             ],
           ),
@@ -637,24 +660,25 @@ class _HomeState extends State<Home> {
     children: [
       Row(
         children: [
-          const Text(
-            '今晚的时间线',
-            style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+          const Expanded(
+            child: Text(
+              'Tonight\'s timeline',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+            ),
           ),
-          const Spacer(),
           TextButton.icon(
             onPressed: () {
               setState(() => planFrom = DateTime.now());
-              action(() => store.save('从当前时间重新排程'));
-              toast('已从当前时间重新安排剩余任务');
+              action(() => store.save('Replanned from the current time'));
+              toast('Remaining tasks replanned from now');
             },
             icon: const Icon(Icons.auto_awesome_outlined, size: 15),
-            label: const Text('重新排程', style: TextStyle(fontSize: 12)),
+            label: const Text('Replan', style: TextStyle(fontSize: 12)),
           ),
         ],
       ),
       const Text(
-        '16:00 — 21:00  ·  留出休息，才能走得更远',
+        '16:00 — 21:00  ·  Make time for breaks',
         style: TextStyle(color: muted, fontSize: 11),
       ),
       const SizedBox(height: 18),
@@ -667,7 +691,7 @@ class _HomeState extends State<Home> {
             borderRadius: BorderRadius.circular(14),
           ),
           child: Text(
-            '今晚还有 ${plan.unscheduledMinutes.values.fold<int>(0, (a, b) => a + b)} 分钟任务未能排入。请减少用时、延后任务，或明天继续。',
+            '${plan.unscheduledMinutes.values.fold<int>(0, (a, b) => a + b)} minutes do not fit tonight. Shorten tasks, defer them, or continue tomorrow.',
             style: const TextStyle(fontSize: 12, color: Color(0xFF936128)),
           ),
         ),
@@ -683,24 +707,27 @@ class _HomeState extends State<Home> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                '今晚的计划，从这里开始',
+                'Your evening starts here',
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 8),
               const Text(
-                '录入任务后，会自动安排学习时间。也可以先体验三项示例任务。',
+                'Add tasks to create your schedule, or try three sample tasks first.',
                 style: TextStyle(color: muted, fontSize: 12),
               ),
               TextButton(
                 onPressed: () => action(() => store.sample()),
-                child: const Text('载入示例任务 →'),
+                child: const Text('Load sample tasks →'),
               ),
             ],
           ),
         ),
       for (final block in plan.blocks) _block(block),
       if (plan.blocks.isEmpty)
-        const Text('今天的学习窗口已经结束。休息一下，明天继续。', style: TextStyle(color: muted)),
+        const Text(
+          'Today\'s study window has ended. Rest and continue tomorrow.',
+          style: TextStyle(color: muted),
+        ),
     ],
   );
   Widget _block(PlanBlock b) {
@@ -709,7 +736,7 @@ class _HomeState extends State<Home> {
         : store.tasks.where((t) => t.id == b.taskId).firstOrNull;
     final color = b.taskId != null
         ? const Color(0xFFEFEDFB)
-        : b.title.contains('晚餐')
+        : b.title.contains('Dinner')
         ? const Color(0xFFFFF2DF)
         : const Color(0xFFEAF4EF);
     return Padding(
@@ -750,7 +777,7 @@ class _HomeState extends State<Home> {
                     child: Icon(
                       b.taskId != null
                           ? Icons.menu_book_rounded
-                          : b.title.contains('晚餐')
+                          : b.title.contains('Dinner')
                           ? Icons.restaurant_outlined
                           : Icons.spa_outlined,
                       size: 20,
@@ -773,7 +800,7 @@ class _HomeState extends State<Home> {
                         ),
                         const SizedBox(height: 5),
                         Text(
-                          '${b.subtitle} · ${b.minutes} 分钟',
+                          '${b.subtitle} · ${b.minutes} min',
                           style: const TextStyle(fontSize: 10, color: muted),
                         ),
                       ],
@@ -781,7 +808,7 @@ class _HomeState extends State<Home> {
                   ),
                   if (task != null)
                     IconButton(
-                      tooltip: '开始专注',
+                      tooltip: 'Focus',
                       onPressed: () => focus(task, b.minutes),
                       icon: const Icon(
                         Icons.play_circle_outline,
@@ -808,7 +835,7 @@ class _HomeState extends State<Home> {
       children: [
         const SizedBox(height: 10),
         const Text(
-          '为明天，准备一点点',
+          'A little preparation for tomorrow',
           style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 16),
@@ -826,12 +853,17 @@ class _HomeState extends State<Home> {
                 children: [
                   Icon(Icons.wb_sunny_outlined, color: Color(0xFF54846F)),
                   SizedBox(width: 8),
-                  Text('明日课程', style: TextStyle(fontWeight: FontWeight.w700)),
+                  Expanded(
+                    child: Text(
+                      'Tomorrow\'s classes',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 10),
               const Text(
-                '选中明天的科目，相关任务将获得更高优先级。',
+                'Choose tomorrow\'s subjects to prioritize related tasks.',
                 style: TextStyle(color: muted, fontSize: 12),
               ),
               const SizedBox(height: 12),
@@ -839,7 +871,7 @@ class _HomeState extends State<Home> {
                 spacing: 7,
                 runSpacing: 7,
                 children: [
-                  for (final s in subjects.where((s) => s != '其他'))
+                  for (final s in subjects.where((s) => s != 'Other'))
                     FilterChip(
                       label: Text(s, style: const TextStyle(fontSize: 11)),
                       selected: store.tomorrowSubjects.contains(s),
@@ -854,7 +886,7 @@ class _HomeState extends State<Home> {
               ),
               const Divider(height: 30),
               const Text(
-                '课前小清单',
+                'Class checklist',
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
               ),
               const SizedBox(height: 8),
@@ -862,21 +894,27 @@ class _HomeState extends State<Home> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text(
-                    '○  $s：回顾笔记、预读下一课、准备材料',
+                    '○  $s: Review notes, read ahead, and prepare materials',
                     style: const TextStyle(fontSize: 12),
                   ),
                 ),
               if (store.tomorrowSubjects.isEmpty)
                 const Text(
-                  '选中科目后生成准备清单',
+                  'Choose subjects to create your checklist',
                   style: TextStyle(color: muted, fontSize: 12),
                 ),
               for (final t in matching)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(t.title, style: const TextStyle(fontSize: 12)),
-                  leading: const Icon(Icons.check_box_outline_blank, size: 18),
-                  onTap: () => edit(t),
+                Material(
+                  type: MaterialType.transparency,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(t.title, style: const TextStyle(fontSize: 12)),
+                    leading: const Icon(
+                      Icons.check_box_outline_blank,
+                      size: 18,
+                    ),
+                    onTap: () => edit(t),
+                  ),
                 ),
             ],
           ),
@@ -891,7 +929,7 @@ class _HomeState extends State<Home> {
               SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  '21:00 之后，安心下线。\n休息也是学习计划的一部分。',
+                  'After 21:00, switch off.\nRest is part of your study plan.',
                   style: TextStyle(color: muted, fontSize: 11, height: 1.8),
                 ),
               ),
@@ -907,10 +945,10 @@ class _HomeState extends State<Home> {
         store.tasks
             .where(
               (t) =>
-                  filter == '全部' ||
-                  filter == '已完成' && t.done ||
-                  filter == '待完成' && !t.done ||
-                  filter == '薄弱科目' && t.weak,
+                  filter == 'All' ||
+                  filter == 'Completed' && t.done ||
+                  filter == 'To do' && !t.done ||
+                  filter == 'Needs practice' && t.weak,
             )
             .toList()
           ..sort((a, b) => a.due.compareTo(b.due));
@@ -918,16 +956,19 @@ class _HomeState extends State<Home> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          '每一个小任务，都是一次进步。',
+          'Every small task is a step forward.',
           style: TextStyle(fontSize: 25, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 10),
-        const Text('管理作业、考试、复习和预习，按自己的节奏向前。', style: TextStyle(color: muted)),
+        const Text(
+          'Manage homework, exams, review, and preparation at your own pace.',
+          style: TextStyle(color: muted),
+        ),
         const SizedBox(height: 22),
         Wrap(
           spacing: 8,
           children: [
-            for (final f in ['全部', '待完成', '薄弱科目', '已完成'])
+            for (final f in ['All', 'To do', 'Needs practice', 'Completed'])
               ChoiceChip(
                 label: Text(f),
                 selected: filter == f,
@@ -936,7 +977,8 @@ class _HomeState extends State<Home> {
           ],
         ),
         const SizedBox(height: 20),
-        if (list.isEmpty) _empty('任务舱很轻盈', '添加一个任务，或者换个筛选条件。'),
+        if (list.isEmpty)
+          _empty('No tasks here', 'Add a task or try another filter.'),
         for (final t in list) _taskCard(t),
       ],
     );
@@ -972,7 +1014,7 @@ class _HomeState extends State<Home> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        '${t.subject} · ${kindName(t.kind)} · ${t.due.month}/${t.due.day} 截止 · 剩余 ${t.remaining} 分钟',
+                        '${t.subject} · ${kindName(t.kind)} · Due ${t.due.month}/${t.due.day} · ${t.remaining} min left',
                         style: const TextStyle(color: muted, fontSize: 11),
                       ),
                     ],
@@ -991,9 +1033,12 @@ class _HomeState extends State<Home> {
                   }
                 },
                 itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'edit', child: Text('编辑任务')),
-                  PopupMenuItem(value: 'defer', child: Text('延后到明天')),
-                  PopupMenuItem(value: 'delete', child: Text('删除任务')),
+                  PopupMenuItem(value: 'edit', child: Text('Edit task')),
+                  PopupMenuItem(
+                    value: 'defer',
+                    child: Text('Defer until tomorrow'),
+                  ),
+                  PopupMenuItem(value: 'delete', child: Text('Delete task')),
                 ],
               ),
             ],
@@ -1004,17 +1049,17 @@ class _HomeState extends State<Home> {
               spacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                if (t.weak) _pill('薄弱科目', const Color(0xFFFFEADB)),
+                if (t.weak) _pill('Needs practice', const Color(0xFFFFEADB)),
                 if (t.deferredUntil != null)
                   _pill(
-                    '已延后至 ${t.deferredUntil!.month}/${t.deferredUntil!.day}',
+                    'Deferred until ${t.deferredUntil!.month}/${t.deferredUntil!.day}',
                     const Color(0xFFE9F1EC),
                   ),
                 if (!t.done)
                   TextButton.icon(
                     onPressed: () => focus(t),
                     icon: const Icon(Icons.play_arrow_rounded, size: 17),
-                    label: const Text('开始专注', style: TextStyle(fontSize: 12)),
+                    label: const Text('Focus', style: TextStyle(fontSize: 12)),
                   ),
               ],
             ),
@@ -1036,11 +1081,15 @@ class _HomeState extends State<Home> {
     ),
   );
   Future<void> _deleteTask(StudyTask t) async {
-    final yes = await confirm(context, '删除这个任务？', '将删除「${t.title}」。此操作无法撤销。');
+    final yes = await confirm(
+      context,
+      'Delete this task?',
+      'This will delete ${t.title}. This cannot be undone.',
+    );
     if (yes) {
       await action(() async {
         store.tasks.remove(t);
-        await store.save('删除任务：${t.title}');
+        await store.save('Deleted task: ${t.title}');
       });
     }
   }
@@ -1056,7 +1105,7 @@ class _HomeState extends State<Home> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          '让未来，清晰一点。',
+          'See your days ahead.',
           style: TextStyle(fontSize: 27, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 20),
@@ -1068,7 +1117,7 @@ class _HomeState extends State<Home> {
                 Row(
                   children: [
                     IconButton(
-                      tooltip: '上个月',
+                      tooltip: 'Previous month',
                       onPressed: () => setState(
                         () => selectedDay = DateTime(
                           selectedDay.year,
@@ -1080,7 +1129,7 @@ class _HomeState extends State<Home> {
                     Expanded(
                       child: Center(
                         child: Text(
-                          '${selectedDay.year} 年 ${selectedDay.month} 月',
+                          '${selectedDay.month}/${selectedDay.year}',
                           style: const TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 18,
@@ -1091,10 +1140,10 @@ class _HomeState extends State<Home> {
                     TextButton(
                       onPressed: () =>
                           setState(() => selectedDay = dayOnly(DateTime.now())),
-                      child: const Text('今天'),
+                      child: const Text('Today'),
                     ),
                     IconButton(
-                      tooltip: '下个月',
+                      tooltip: 'Next month',
                       onPressed: () => setState(
                         () => selectedDay = DateTime(
                           selectedDay.year,
@@ -1108,12 +1157,21 @@ class _HomeState extends State<Home> {
                 const SizedBox(height: 14),
                 Row(
                   children: [
-                    for (final day in ['一', '二', '三', '四', '五', '六', '日'])
+                    for (final day in [
+                      'Mon',
+                      'Tue',
+                      'Wed',
+                      'Thu',
+                      'Fri',
+                      'Sat',
+                      'Sun',
+                    ])
                       Expanded(
                         child: Center(
                           child: Text(
                             day,
-                            style: const TextStyle(color: muted),
+                            maxLines: 1,
+                            style: const TextStyle(color: muted, fontSize: 11),
                           ),
                         ),
                       ),
@@ -1150,7 +1208,9 @@ class _HomeState extends State<Home> {
                           children: [
                             Text(
                               '${d.day}',
+                              maxLines: 1,
                               style: TextStyle(
+                                fontSize: 13,
                                 color: selectedDay == d ? Colors.white : ink,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -1178,11 +1238,12 @@ class _HomeState extends State<Home> {
         ),
         const SizedBox(height: 22),
         Text(
-          '${selectedDay.month} 月 ${selectedDay.day} 日 · 截止任务',
+          '${selectedDay.month}/${selectedDay.day} · Tasks due',
           style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
         ),
         const SizedBox(height: 14),
-        if (daily.isEmpty) _empty('这一天没有截止任务', '留一点空间给自己。'),
+        if (daily.isEmpty)
+          _empty('No tasks due today', 'Leave a little room for yourself.'),
         for (final t in daily) _taskCard(t),
       ],
     );
@@ -1192,23 +1253,30 @@ class _HomeState extends State<Home> {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       const Text(
-        '属于你的学习空间',
+        'Your study space',
         style: TextStyle(fontSize: 27, fontWeight: FontWeight.w800),
       ),
       const SizedBox(height: 8),
-      const Text('数据留在设备上，节奏掌握在自己手里。', style: TextStyle(color: muted)),
+      const Text(
+        'Your data stays on your device. Your pace stays yours.',
+        style: TextStyle(color: muted),
+      ),
       const SizedBox(height: 24),
       Card(
         child: Column(
           children: [
             const ListTile(
               leading: Icon(Icons.shield_outlined, color: violet),
-              title: Text('本地优先 · 无需账号'),
-              subtitle: Text('任务和记录保存在当前设备，不上传云端。'),
+              title: Text('Local storage · No account needed'),
+              subtitle: Text(
+                'Tasks and records stay on this device and are not uploaded.',
+              ),
             ),
             SwitchListTile(
-              title: const Text('识别后删除临时照片'),
-              subtitle: const Text('只删除 App 临时副本，不影响原始相册图片'),
+              title: const Text('Delete temporary photos after scanning'),
+              subtitle: const Text(
+                'Only app copies are deleted. Your original photos stay safe.',
+              ),
               value: store.deletePhotos,
               onChanged: (v) => action(() async {
                 store.deletePhotos = v;
@@ -1217,26 +1285,36 @@ class _HomeState extends State<Home> {
             ),
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('删除保留的临时照片'),
-              subtitle: const Text('清理 App 拍摄和导入的副本，不删除原始相册图片'),
+              title: const Text('Delete retained photo copies'),
+              subtitle: const Text(
+                'Remove app photo copies without deleting originals from your library.',
+              ),
               onTap: () async {
-                if (await confirm(context, '删除临时照片？', '将永久删除 App 保留的图片副本。')) {
+                if (await confirm(
+                  context,
+                  'Delete temporary photos?',
+                  'Photo copies retained by the app will be permanently deleted.',
+                )) {
                   await action(() async {
                     await clearRetainedPhotos();
-                    toast('临时照片已清理');
+                    toast('Temporary photos deleted');
                   });
                 }
               },
             ),
             const ListTile(
               leading: Icon(Icons.mic_none_rounded),
-              title: Text('仅使用设备端语音识别'),
-              subtitle: Text('不支持离线识别时会停止，不回退至云端。'),
+              title: Text('On-device speech recognition only'),
+              subtitle: Text(
+                'If offline recognition is unavailable, recognition stops without using the cloud.',
+              ),
             ),
             const ListTile(
               leading: Icon(Icons.notifications_none_rounded),
-              title: Text('专注与休息提醒'),
-              subtitle: Text('当前版本仅在专注页面打开时提醒；未接入后台通知。'),
+              title: Text('Focus and break reminders'),
+              subtitle: Text(
+                'Reminders appear while the focus screen is open. Background notifications are not available.',
+              ),
             ),
           ],
         ),
@@ -1247,10 +1325,16 @@ class _HomeState extends State<Home> {
           children: [
             ListTile(
               leading: const Icon(Icons.delete_sweep_outlined),
-              title: const Text('清空学习历史'),
-              subtitle: const Text('保留任务，删除操作记录和累计专注时间'),
+              title: const Text('Clear study history'),
+              subtitle: const Text(
+                'Keep tasks and remove activity history and total focus time',
+              ),
               onTap: () async {
-                if (await confirm(context, '清空学习历史？', '操作记录和累计专注时间将永久删除。')) {
+                if (await confirm(
+                  context,
+                  'Clear study history?',
+                  'Activity history and total focus time will be permanently deleted.',
+                )) {
                   await action(() async {
                     store.history.clear();
                     for (final t in store.tasks) {
@@ -1266,12 +1350,12 @@ class _HomeState extends State<Home> {
                 Icons.delete_outline,
                 color: Colors.redAccent,
               ),
-              title: const Text('删除全部本地数据'),
+              title: const Text('Delete all local data'),
               onTap: () async {
                 if (await confirm(
                   context,
-                  '删除全部数据？',
-                  '所有任务、学习记录和设置将永久删除，无法恢复。',
+                  'Delete all data?',
+                  'All tasks, study records, and settings will be permanently deleted. This cannot be undone.',
                 )) {
                   await action(() => store.clear());
                 }
@@ -1282,11 +1366,15 @@ class _HomeState extends State<Home> {
       ),
       const SizedBox(height: 26),
       const Text(
-        '学习足迹',
+        'Study history',
         style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
       ),
       const SizedBox(height: 12),
-      if (store.history.isEmpty) _empty('还没有学习记录', '添加任务或开启一次专注，记录会出现在这里。'),
+      if (store.history.isEmpty)
+        _empty(
+          'No study history yet',
+          'Add a task or start a focus session to see your activity here.',
+        ),
       for (final h in store.history.take(100))
         ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 6),
@@ -1299,7 +1387,7 @@ class _HomeState extends State<Home> {
         ),
       const SizedBox(height: 20),
       const Text(
-        'StudyOrbit · MVP 1.0\n本地规则排程与草稿提取；尚未接入大语言模型、订阅和加密备份。',
+        'StudyOrbit · MVP 1.0\nLocal scheduling and task extraction. AI models, subscriptions, and encrypted backups are not available yet.',
         style: TextStyle(fontSize: 11, color: muted, height: 1.8),
       ),
     ],
@@ -1344,11 +1432,11 @@ Future<bool> confirm(
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
+            child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('确认删除'),
+            child: const Text('Delete'),
           ),
         ],
       ),
@@ -1446,7 +1534,9 @@ class _CapturePageState extends State<CapturePage> {
           defaultTargetPlatform == TargetPlatform.iOS);
   Future<void> scan(ImageSource source) async {
     if (!mobile) {
-      fail('拍照识别需要 Android 或 iOS 手机。当前平台可使用文字录入。');
+      fail(
+        'Photo scanning requires an Android or iOS phone. Use text input on this platform.',
+      );
       return;
     }
     setState(() {
@@ -1466,7 +1556,7 @@ class _CapturePageState extends State<CapturePage> {
       currentPath = picked.path;
       await retainLocalPhoto(picked.path);
       final bytes = await picked.readAsBytes();
-      recognizer = TextRecognizer(script: TextRecognitionScript.chinese);
+      recognizer = TextRecognizer(script: TextRecognitionScript.latin);
       final recognized = await recognizer.processImage(
         InputImage.fromFilePath(picked.path),
       );
@@ -1476,16 +1566,22 @@ class _CapturePageState extends State<CapturePage> {
         photoPath = picked.path;
         input.text = recognized.text;
       });
-      if (recognized.text.trim().isEmpty) fail('没有识别到文字，请重新拍摄，或手动补充。');
+      if (recognized.text.trim().isEmpty) {
+        fail('No text found. Try another photo or type your tasks.');
+      }
     } catch (_) {
-      fail('无法识别照片。请检查相机权限、设备识别模型，或改用文字录入。');
+      fail(
+        'Unable to scan this photo. Check camera permissions and on-device models, or use text input.',
+      );
     } finally {
       await recognizer?.close();
       if (widget.deletePhotos && currentPath != null) {
         try {
           await deleteLocalPhoto(currentPath);
         } catch (_) {
-          fail('临时照片删除失败，请在设备设置中清理 App 数据。');
+          fail(
+            'Unable to delete the temporary photo. Clear app data in your device settings.',
+          );
         }
       }
       if (mounted) setState(() => busy = false);
@@ -1498,7 +1594,9 @@ class _CapturePageState extends State<CapturePage> {
       return;
     }
     if (!mobile) {
-      fail('仅在支持设备端语音识别的 Android / iOS 手机上可用。请使用文字录入。');
+      fail(
+        'Voice input requires an Android or iOS phone with on-device speech support. Use text input instead.',
+      );
       return;
     }
     setState(() {
@@ -1508,7 +1606,7 @@ class _CapturePageState extends State<CapturePage> {
     });
     try {
       final result = await speech.invokeMethod<String>('recognize', {
-        'locale': 'zh-CN',
+        'locale': 'en-US',
       });
       if (mounted && result != null && result.trim().isNotEmpty) {
         setState(
@@ -1519,9 +1617,13 @@ class _CapturePageState extends State<CapturePage> {
         );
       }
     } on PlatformException catch (e) {
-      fail(e.message ?? '设备端语音识别不可用，请改用文字录入。');
+      fail(
+        e.message ?? 'On-device speech recognition is unavailable. Use text input instead.',
+      );
     } catch (_) {
-      fail('设备端语音识别不可用，请改用文字录入。');
+      fail(
+        'On-device speech recognition is unavailable. Use text input instead.',
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -1545,7 +1647,11 @@ class _CapturePageState extends State<CapturePage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(drafts == null ? '把今天的任务放进轨道' : '确认你的任务草稿')),
+    appBar: AppBar(
+      title: Text(
+        drafts == null ? 'Add your study tasks' : 'Review your task drafts',
+      ),
+    ),
     body: SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(22, 12, 22, 40),
@@ -1566,7 +1672,9 @@ class _CapturePageState extends State<CapturePage> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  drafts == null ? '想到什么，就记下来。' : '核对一下，再开始。',
+                  drafts == null
+                      ? 'Write down what you need to do.'
+                      : 'Check the details before you start.',
                   style: const TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.w800,
@@ -1574,7 +1682,9 @@ class _CapturePageState extends State<CapturePage> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  drafts == null ? '作业、quiz 订正、考试和预习，都可以一起录入。' : '以下字段由本地规则提取，可能不准确。请逐项检查科目、日期和用时；未识别的日期默认明天，用时默认 30 分钟。',
+                  drafts == null
+                      ? 'Add homework, quiz corrections, exams, and preparation together.'
+                      : 'Drafts are extracted using local rules and may be inaccurate. Check each subject, date, and duration. Unrecognized dates default to tomorrow and durations to 30 minutes.',
                   style: const TextStyle(color: muted, fontSize: 13),
                 ),
                 const SizedBox(height: 22),
@@ -1584,17 +1694,17 @@ class _CapturePageState extends State<CapturePage> {
                       ButtonSegment(
                         value: 0,
                         icon: Icon(Icons.edit_note),
-                        label: Text('文字'),
+                        label: Text('Text'),
                       ),
                       ButtonSegment(
                         value: 1,
                         icon: Icon(Icons.camera_alt_outlined),
-                        label: Text('拍照'),
+                        label: Text('Photo'),
                       ),
                       ButtonSegment(
                         value: 2,
                         icon: Icon(Icons.mic_none),
-                        label: Text('语音'),
+                        label: Text('Voice'),
                       ),
                     ],
                     selected: {mode},
@@ -1612,7 +1722,7 @@ class _CapturePageState extends State<CapturePage> {
                                 ? null
                                 : () => scan(ImageSource.camera),
                             icon: const Icon(Icons.camera_alt_outlined),
-                            label: const Text('拍摄作业'),
+                            label: const Text('Take a photo'),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -1622,14 +1732,14 @@ class _CapturePageState extends State<CapturePage> {
                                 ? null
                                 : () => scan(ImageSource.gallery),
                             icon: const Icon(Icons.photo_outlined),
-                            label: const Text('从相册选择'),
+                            label: const Text('Choose from library'),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      '识别在设备上完成。图片仅用于当前草稿，不上传。',
+                      'Text recognition runs on your device. Photos are used for this draft and are not uploaded.',
                       style: TextStyle(fontSize: 11, color: muted),
                     ),
                   ],
@@ -1637,11 +1747,13 @@ class _CapturePageState extends State<CapturePage> {
                     FilledButton.icon(
                       onPressed: busy && !listening ? null : dictate,
                       icon: Icon(listening ? Icons.stop : Icons.mic_none),
-                      label: Text(listening ? '结束录音' : '开始设备端语音识别'),
+                      label: Text(
+                        listening ? 'Stop recording' : 'Start voice input',
+                      ),
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      '需要设备已安装中文离线识别模型。不支持时会提示，不会启用云端识别。',
+                      'An English offline speech model must be installed. If unavailable, the app will let you know and will not use cloud recognition.',
                       style: TextStyle(fontSize: 11, color: muted),
                     ),
                   ],
@@ -1663,7 +1775,7 @@ class _CapturePageState extends State<CapturePage> {
                           photoPath = null;
                         });
                       },
-                      child: const Text('移除图片预览'),
+                      child: const Text('Remove photo preview'),
                     ),
                   ],
                   const SizedBox(height: 20),
@@ -1673,14 +1785,14 @@ class _CapturePageState extends State<CapturePage> {
                     minLines: 7,
                     maxLines: 14,
                     decoration: const InputDecoration(
-                      labelText: '学习内容 / 识别文本',
+                      labelText: 'Study tasks / Recognized text',
                       alignLabelWithHint: true,
-                      hintText: '每行一个任务，例如：\n数学，明天交二次函数练习，45分钟\n物理，后天考试，复习力与运动，60分钟\n英语，预习下一课，20分钟',
+                      hintText: 'One task per line, for example:\nMath, quadratic functions due tomorrow, 45 minutes\nPhysics, exam the day after tomorrow, 60 minutes\nEnglish, preview the next lesson, 20 minutes',
                     ),
                   ),
                   const SizedBox(height: 14),
                   const Text(
-                    '提示：按行拆分任务；支持“今天 / 明天 / 后天”、月/日和“分钟”。复杂日期请在草稿中手动修改。',
+                    'Tip: Use one task per line, today / tomorrow / the day after tomorrow, month/day, and minutes. Check complex dates in your drafts.',
                     style: TextStyle(color: muted, fontSize: 11, height: 1.7),
                   ),
                   if (busy)
@@ -1707,12 +1819,12 @@ class _CapturePageState extends State<CapturePage> {
                         ),
                         title: Text(drafts![i].title),
                         subtitle: Text(
-                          '${drafts![i].subject} · ${kindName(drafts![i].kind)}\n${drafts![i].due.month}/${drafts![i].due.day} 截止 · ${drafts![i].minutes} 分钟',
+                          '${drafts![i].subject} · ${kindName(drafts![i].kind)}\nDue ${drafts![i].due.month}/${drafts![i].due.day} · ${drafts![i].minutes} min',
                           style: const TextStyle(fontSize: 12, height: 1.8),
                         ),
                         onTap: () => editDraft(i),
                         trailing: IconButton(
-                          tooltip: '移除草稿',
+                          tooltip: 'Remove draft',
                           onPressed: () => setState(() => drafts!.removeAt(i)),
                           icon: const Icon(Icons.close, size: 18),
                         ),
@@ -1721,7 +1833,7 @@ class _CapturePageState extends State<CapturePage> {
                   TextButton.icon(
                     onPressed: () => setState(() => drafts = null),
                     icon: const Icon(Icons.arrow_back, size: 16),
-                    label: const Text('返回修改原文'),
+                    label: const Text('Edit original text'),
                   ),
                 ],
                 if (error != null)
@@ -1744,7 +1856,7 @@ class _CapturePageState extends State<CapturePage> {
                         : () {
                             if (drafts == null) {
                               if (input.text.trim().isEmpty) {
-                                fail('请先输入学习内容。');
+                                fail('Enter your study tasks first.');
                                 return;
                               }
                               setState(() {
@@ -1755,7 +1867,7 @@ class _CapturePageState extends State<CapturePage> {
                                 error = null;
                               });
                             } else if (drafts!.isEmpty) {
-                              fail('请至少保留一个任务。');
+                              fail('Keep at least one task.');
                             } else {
                               Navigator.pop(context, drafts);
                             }
@@ -1766,7 +1878,9 @@ class _CapturePageState extends State<CapturePage> {
                           : Icons.check_rounded,
                     ),
                     label: Text(
-                      drafts == null ? '生成任务草稿' : '确认并添加 ${drafts!.length} 个任务',
+                      drafts == null
+                          ? 'Create task drafts'
+                          : 'Confirm and add ${drafts!.length} ${drafts!.length == 1 ? 'task' : 'tasks'}',
                     ),
                   ),
                 ),
@@ -1816,24 +1930,25 @@ class _TaskEditorState extends State<TaskEditor> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              '调整学习任务',
+              'Edit study task',
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 20),
             TextFormField(
               controller: title,
-              decoration: const InputDecoration(labelText: '任务名称'),
+              decoration: const InputDecoration(labelText: 'Task name'),
               maxLength: 200,
               validator: (s) =>
-                  s == null || s.trim().isEmpty ? '请输入任务名称' : null,
+                  s == null || s.trim().isEmpty ? 'Enter a task name' : null,
             ),
             const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: task.subject,
-                    decoration: const InputDecoration(labelText: '科目'),
+                    decoration: const InputDecoration(labelText: 'Subject'),
                     items: [
                       for (final s in subjects)
                         DropdownMenuItem(value: s, child: Text(s)),
@@ -1844,8 +1959,9 @@ class _TaskEditorState extends State<TaskEditor> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: DropdownButtonFormField<TaskKind>(
+                    isExpanded: true,
                     initialValue: task.kind,
-                    decoration: const InputDecoration(labelText: '任务类型'),
+                    decoration: const InputDecoration(labelText: 'Task type'),
                     items: [
                       for (final k in TaskKind.values)
                         DropdownMenuItem(value: k, child: Text(kindName(k))),
@@ -1880,11 +1996,13 @@ class _TaskEditorState extends State<TaskEditor> {
                   child: TextFormField(
                     controller: minutes,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: '预计分钟'),
+                    decoration: const InputDecoration(
+                      labelText: 'Estimated minutes',
+                    ),
                     validator: (s) {
                       final n = int.tryParse(s ?? '');
                       return n == null || n < 5 || n > 600
-                          ? '输入 5–600 分钟'
+                          ? 'Enter 5–600 minutes'
                           : null;
                     },
                   ),
@@ -1892,7 +2010,9 @@ class _TaskEditorState extends State<TaskEditor> {
               ],
             ),
             const SizedBox(height: 16),
-            Text('任务难度：${['轻松', '适中', '有挑战'][task.difficulty - 1]}'),
+            Text(
+              'Difficulty: ${['Easy', 'Moderate', 'Challenging'][task.difficulty - 1]}',
+            ),
             Slider(
               value: task.difficulty.toDouble(),
               min: 1,
@@ -1902,7 +2022,7 @@ class _TaskEditorState extends State<TaskEditor> {
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('这是我的薄弱科目'),
+              title: const Text('I need extra practice in this subject'),
               value: task.weak,
               onChanged: (v) => setState(() => task.weak = v),
             ),
@@ -1911,8 +2031,9 @@ class _TaskEditorState extends State<TaskEditor> {
               minLines: 2,
               maxLines: 5,
               decoration: const InputDecoration(
-                labelText: '任务步骤（每行一步，可选）',
-                hintText: '整理材料\n完成练习\n检查与订正',
+                labelText: 'Steps (one per line, optional)',
+                hintText:
+                    'Gather materials\nComplete exercises\nCheck and correct',
               ),
             ),
             const SizedBox(height: 22),
@@ -1931,7 +2052,7 @@ class _TaskEditorState extends State<TaskEditor> {
                     Navigator.pop(context, task);
                   }
                 },
-                child: const Text('保存修改'),
+                child: const Text('Save changes'),
               ),
             ),
           ],
@@ -1982,12 +2103,16 @@ class _FocusPageState extends State<FocusPage> with WidgetsBindingObserver {
         showDialog<void>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: Text(breakMode ? '休息结束' : '专注时间到'),
-            content: Text(breakMode ? '准备好后，回到你的学习轨道。' : '看向远处、喝口水，给自己五分钟休息。'),
+            title: Text(
+              breakMode ? 'Break finished' : 'Focus session finished',
+            ),
+            content: Text(
+              breakMode ? 'Return to your study plan when you are ready.' : 'Look away, drink some water, and take a five-minute break.',
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('知道了'),
+                child: const Text('Got it'),
               ),
             ],
           ),
@@ -2022,12 +2147,17 @@ class _FocusPageState extends State<FocusPage> with WidgetsBindingObserver {
     widget.task.spentSeconds += delta;
     try {
       await widget.store.save(
-        '专注 ${delta ~/ 60} 分 ${delta % 60} 秒：${widget.task.title}',
+        'Focused for ${delta ~/ 60} min ${delta % 60} sec: ${widget.task.title}',
       );
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('学习记录保存失败，请检查设备存储。')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Unable to save your study record. Check device storage.',
+            ),
+          ),
+        );
       }
     }
   }
@@ -2056,11 +2186,11 @@ class _FocusPageState extends State<FocusPage> with WidgetsBindingObserver {
     child: Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          tooltip: '保存并返回',
+          tooltip: 'Save and go back',
           onPressed: saving ? null : leave,
           icon: const Icon(Icons.arrow_back),
         ),
-        title: const Text('专注模式'),
+        title: const Text('Focus mode'),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -2072,7 +2202,7 @@ class _FocusPageState extends State<FocusPage> with WidgetsBindingObserver {
                 children: [
                   const SizedBox(height: 24),
                   Text(
-                    breakMode ? '给大脑一点留白' : '一次，只专注一件事',
+                    breakMode ? 'Give your mind a break' : 'One task at a time',
                     style: const TextStyle(color: muted, letterSpacing: 1),
                   ),
                   const SizedBox(height: 14),
@@ -2118,10 +2248,10 @@ class _FocusPageState extends State<FocusPage> with WidgetsBindingObserver {
                             ),
                             Text(
                               breakMode
-                                  ? '休息时间'
+                                  ? 'Break time'
                                   : running
-                                  ? '正在靠近目标'
-                                  : '准备好就开始',
+                                  ? 'Getting closer to your goal'
+                                  : 'Start when you are ready',
                               style: const TextStyle(
                                 color: muted,
                                 fontSize: 12,
@@ -2133,8 +2263,10 @@ class _FocusPageState extends State<FocusPage> with WidgetsBindingObserver {
                     ),
                   ),
                   const SizedBox(height: 35),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 12,
+                    runSpacing: 12,
                     children: [
                       FilledButton.icon(
                         onPressed: saving || left == 0
@@ -2155,9 +2287,8 @@ class _FocusPageState extends State<FocusPage> with WidgetsBindingObserver {
                               ? Icons.pause_rounded
                               : Icons.play_arrow_rounded,
                         ),
-                        label: Text(running ? '暂停' : '开始'),
+                        label: Text(running ? 'Pause' : 'Start'),
                       ),
-                      const SizedBox(width: 12),
                       OutlinedButton(
                         onPressed: saving
                             ? null
@@ -2170,7 +2301,11 @@ class _FocusPageState extends State<FocusPage> with WidgetsBindingObserver {
                                   recorded = 0;
                                 });
                               },
-                        child: Text(breakMode ? '回到学习' : '休息 5 分钟'),
+                        child: Text(
+                          breakMode
+                              ? 'Back to studying'
+                              : 'Take a 5-minute break',
+                        ),
                       ),
                     ],
                   ),
@@ -2186,7 +2321,7 @@ class _FocusPageState extends State<FocusPage> with WidgetsBindingObserver {
                         style: const TextStyle(fontSize: 13),
                       ),
                       subtitle: const Text(
-                        '本次专注清单',
+                        'Session checklist',
                         style: TextStyle(fontSize: 10, color: muted),
                       ),
                       controlAffinity: ListTileControlAffinity.leading,
@@ -2206,17 +2341,21 @@ class _FocusPageState extends State<FocusPage> with WidgetsBindingObserver {
                               if (mounted) {
                                 setState(() => saving = false);
                                 ScaffoldMessenger.of(this.context).showSnackBar(
-                                  const SnackBar(content: Text('保存失败，请重试。')),
+                                  const SnackBar(
+                                    content: Text(
+                                      'Unable to save. Please try again. ',
+                                    ),
+                                  ),
                                 );
                               }
                             }
                           },
                     icon: const Icon(Icons.check_circle_outline),
-                    label: const Text('任务已完成，记录进步'),
+                    label: const Text('Mark task complete'),
                   ),
                   const SizedBox(height: 12),
                   const Text(
-                    '离开 App 时自动暂停。提醒仅在此页面打开时生效。',
+                    'Sessions pause when you leave the app. Reminders work while this screen is open.',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 11, color: muted),
                   ),

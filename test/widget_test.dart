@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
@@ -22,26 +24,35 @@ void main() {
       await tester.pumpWidget(StudyOrbitApp(store: store));
       expect(find.text('StudyOrbit'), findsOneWidget);
       expect(tester.takeException(), isNull);
-      await tester.tap(find.text('录入学习任务'));
+      await tester.tap(find.text('Add study tasks'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), '数学 明天完成练习 30分钟');
-      await tester.ensureVisible(find.text('生成任务草稿'));
-      await tester.tap(find.text('生成任务草稿'));
+      await tester.enterText(
+        find.byType(TextField),
+        'Math exercises due tomorrow, 30 minutes',
+      );
+      await tester.ensureVisible(find.text('Create task drafts'));
+      await tester.tap(find.text('Create task drafts'));
       await tester.pumpAndSettle();
-      expect(find.text('确认你的任务草稿'), findsOneWidget);
-      await tester.ensureVisible(find.text('确认并添加 1 个任务'));
-      await tester.tap(find.text('确认并添加 1 个任务'));
+      expect(find.text('Review your task drafts'), findsOneWidget);
+      await tester.ensureVisible(find.text('Confirm and add 1 task'));
+      await tester.tap(find.text('Confirm and add 1 task'));
       await tester.pumpAndSettle();
       expect(store.tasks.length, 1);
       final restored = StudyStore();
       await restored.load();
-      expect(restored.tasks.single.title, '数学 明天完成练习 30分钟');
-      await tester.tap(find.text('任务', skipOffstage: false));
+      expect(
+        restored.tasks.single.title,
+        'Math exercises due tomorrow, 30 minutes',
+      );
+      await tester.tap(find.text('Tasks', skipOffstage: false));
       await tester.pumpAndSettle();
-      expect(find.text('数学 明天完成练习 30分钟'), findsOneWidget);
-      await tester.tap(find.text('日历'));
+      expect(
+        find.text('Math exercises due tomorrow, 30 minutes'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Calendar'));
       await tester.pumpAndSettle();
-      expect(find.text('让未来，清晰一点。'), findsOneWidget);
+      expect(find.text('See your days ahead.'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -55,18 +66,55 @@ void main() {
       final store = StudyStore();
       await store.load();
       await tester.pumpWidget(StudyOrbitApp(store: store));
-      expect(find.text('我的学习空间'), findsOneWidget);
-      expect(find.text('今晚的计划，从这里开始'), findsOneWidget);
+      expect(find.text('My study space'), findsOneWidget);
+      expect(find.text('Your evening starts here'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets('English screens and task editor fit a narrow phone', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final store = StudyStore();
+    await store.sample();
+    await tester.pumpWidget(StudyOrbitApp(store: store));
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Tasks', skipOffstage: false));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byType(PopupMenuButton<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit task'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit study task'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    Navigator.of(tester.element(find.text('Edit study task'))).pop();
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Focus').first);
+    await tester.tap(find.text('Focus').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Focus mode'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    Navigator.of(tester.element(find.text('Focus mode'))).pop();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Calendar'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('My space'));
+    await tester.pumpAndSettle();
+    expect(find.text('Your study space'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
   test(
     'Tasks, settings and completion history survive reload and deletion',
     () async {
       final store = StudyStore();
       await store.load();
       await store.sample();
-      store.tomorrowSubjects = {'数学'};
+      store.tomorrowSubjects = {'Math'};
       store.deletePhotos = false;
       await store.toggle(store.tasks.first);
       await store.save();
@@ -75,7 +123,7 @@ void main() {
       expect(copy.tasks.length, 3);
       expect(copy.tasks.first.done, isTrue);
       expect(copy.history.length, 2);
-      expect(copy.tomorrowSubjects, {'数学'});
+      expect(copy.tomorrowSubjects, {'Math'});
       expect(copy.deletePhotos, isFalse);
       await copy.clear();
       final empty = StudyStore();
@@ -94,4 +142,37 @@ void main() {
     expect(store.error, isNotNull);
     expect(store.save(), throwsStateError);
   });
+
+  test(
+    'Legacy subjects load in English without changing user content',
+    () async {
+      final original = StudyStore();
+      await original.sample();
+      final saved = jsonDecode(original.encode()) as Map<String, dynamic>;
+      saved['tasks'][0]['subject'] = '数学';
+      saved['tasks'][0]['title'] = '我的练习';
+      saved['tasks'][0]['steps'] = ['保留我的步骤'];
+      saved['tomorrowSubjects'] = ['数学', '物理'];
+      saved['history'] = [
+        {'message': '完成：我的练习', 'time': DateTime(2026, 11, 9).toIso8601String()},
+      ];
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData({
+            'studyorbit.v1': jsonEncode(saved),
+          });
+      final restored = StudyStore();
+      await restored.load();
+      expect(restored.error, isNull);
+      expect(restored.tasks.first.subject, 'Math');
+      expect(restored.tomorrowSubjects, {'Math', 'Physics'});
+      expect(restored.tasks.first.title, '我的练习');
+      expect(restored.tasks.first.steps, ['保留我的步骤']);
+      expect(restored.history.single.message, 'Completed: 我的练习');
+      await restored.save();
+      final reloaded = StudyStore();
+      await reloaded.load();
+      expect(reloaded.tasks.first.subject, 'Math');
+      expect(reloaded.tomorrowSubjects, {'Math', 'Physics'});
+    },
+  );
 }
