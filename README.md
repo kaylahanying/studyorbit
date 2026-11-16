@@ -8,8 +8,8 @@ and repository names retain `studyorbit`.
 On supported iPhones running iOS 26 or later, Apple Intelligence uses the native
 Foundation Models framework to interpret a paragraph and draft separate study
 tasks, including subjects, due dates, estimated durations, and steps. Large
-assignments can be broken into stages. Completed voice transcription and photo
-OCR automatically begin task drafting when the model is available. Typed input
+assignments can be broken into stages. Completed voice transcription automatically begins task drafting when the model
+is available. Photo OCR opens the academic photo wizard described below. Typed input
 uses **Create task drafts**. Review and edit drafts before confirming them.
 
 Apple Intelligence must be enabled and its model downloaded. Availability is
@@ -20,6 +20,23 @@ The minimum deployment target stays iOS 15.5; Foundation Models is weak-linked
 and runtime-gated behind iOS 26 availability. Inputs are limited to 3,000
 characters and model output to 15 tasks per request. Dates and durations are
 validated before any drafts are displayed; model estimates still need review.
+
+## Academic photo wizard
+
+On supported iPhones, after taking or choosing a photo, on-device OCR extracts
+readable text and Apple Intelligence classifies its subject, topic and material
+(notes, reading, problems or exam). The wizard recommends a study guide for
+notes/reading, step-by-step solving for problems, or practice for exams. Students
+can choose any of the three goals and generate a guide before optionally creating
+reviewable planner tasks. Editing recognized text requires reclassification.
+Nonacademic text receives a friendly request to take an academic photo; unclear
+text prompts a clearer capture or added context. No task is automatically saved.
+
+This analyzes **recognized text**, not image pixels: diagrams without readable
+text and OCR errors need a clearer capture or typed context. The 3,000-character
+input limit applies. Photos and text stay on device. Android, web and iPhones
+without Apple Intelligence do not support AI photo guides; students can remove
+the photo and enter tasks manually. Generated explanations need checking.
 
 面向高中生的 Flutter 学习计划 MVP。英文界面，支持 Android、iOS，以及用于演示文字录入流程的 Web 版本。由用户提供的《StudyOrbit 手机 App 商业计划（精简版）》实现。
 

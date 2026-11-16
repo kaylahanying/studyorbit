@@ -1517,6 +1517,9 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
   TaskModelAvailability? taskModel;
   bool generatingDrafts = false, draftsUseAI = false;
   String? draftingError;
+  Map<String, String>? photoCategory, photoGuide;
+  String? analyzedPhotoText;
+  String photoGoal = 'study';
   final speech = const MethodChannel('si.studyorbit/offline_speech');
   bool busy = false, listening = false;
   bool stoppingSpeech = false;
@@ -1571,6 +1574,11 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
 
   Future<void> _createDrafts({bool basic = false}) async {
     if (busy) return;
+    if (photo != null && analyzedPhotoText != input.text.trim()) {
+      await _analyzePhoto();
+      return;
+    }
+    if (photo != null && photoCategory?['category'] != 'academic') return;
     final text = input.text.trim();
     if (text.isEmpty) {
       fail('Enter your study tasks first.');
@@ -1651,7 +1659,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    if (generatingDrafts) unawaited(taskUnderstanding.cancel());
+    if (busy) unawaited(taskUnderstanding.cancel());
     captureScroll.dispose();
     speech.setMethodCallHandler(null);
     if (listening) unawaited(_cancelSpeech());
@@ -1682,6 +1690,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
     TextRecognizer? recognizer;
     String? currentPath;
     var understoodPhoto = false;
+    setState(() { photoCategory = null; photoGuide = null; analyzedPhotoText = null; });
     try {
       final picked = await ImagePicker().pickImage(
         source: source,
@@ -1705,7 +1714,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
       });
       understoodPhoto = recognized.text.trim().isNotEmpty;
       if (recognized.text.trim().isEmpty) {
-        fail('No text found. Try another photo or type your tasks.');
+        fail('Please take a photo related to academic content, such as notes or a worksheet. If this is a diagram, add its question as text.');
       }
     } catch (_) {
       fail(
@@ -1724,11 +1733,53 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
       }
       if (mounted) setState(() => busy = false);
     }
-    if (mounted &&
-        understoodPhoto &&
-        error == null &&
-        taskModel?.available == true) {
-      await _createDrafts();
+    if (mounted && understoodPhoto && error == null) {
+      await _analyzePhoto();
+    }
+  }
+
+  Future<void> _analyzePhoto() async {
+    if (busy) return;
+    if (taskModel?.available != true) {
+      fail('Photo understanding needs Apple Intelligence on a supported iPhone. You can remove the photo and enter study tasks manually.');
+      return;
+    }
+    setState(() { busy = true; error = null; photoCategory = null; photoGuide = null; });
+    try {
+      final source = input.text.trim();
+      final result = await taskUnderstanding.photoRequest('classifyPhoto', source);
+      if (!mounted) return;
+      setState(() {
+        analyzedPhotoText = source;
+        photoCategory = result;
+        photoGoal = switch (result['contentType']) {
+          'problems' => 'solve', 'exam' => 'practice', _ => 'study',
+        };
+        if (result['category'] == 'nonAcademic') {
+          error = 'Please take a photo related to academic content, such as a textbook, worksheet, or class notes.';
+        } else if (result['category'] == 'unclear') {
+          error = 'I couldn’t read enough academic context. Please take a clearer photo or add the question below.';
+        }
+      });
+    } catch (_) {
+      fail('Unable to analyze this photo. Try a clearer photo or shorter text, then retry.');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _generatePhotoGuide() async {
+    if (busy) return;
+    if (analyzedPhotoText != input.text.trim()) { await _analyzePhoto(); return; }
+    if (photoCategory?['category'] != 'academic') return;
+    setState(() { busy = true; error = null; photoGuide = null; });
+    try {
+      final result = await taskUnderstanding.photoRequest('photoGuide', analyzedPhotoText!, goal: photoGoal);
+      if (mounted) setState(() => photoGuide = result);
+    } catch (_) {
+      fail('Unable to create your guide. Your photo text is still here. Please retry.');
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
   }
 
@@ -2030,19 +2081,67 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                       ),
                     ),
                     TextButton(
-                      onPressed: () {
+                      onPressed: busy ? null : () {
                         setState(() {
                           photo = null;
                           photoPath = null;
+                          photoCategory = null;
+                          photoGuide = null;
+                          analyzedPhotoText = null;
+                          error = null;
                         });
                       },
                       child: const Text('Remove photo preview'),
                     ),
                   ],
+                  if (photo != null) ...[
+                    const SizedBox(height: 16),
+                    TextButton.icon(
+                      onPressed: busy ? null : _analyzePhoto,
+                      icon: const Icon(Icons.auto_awesome),
+                      label: const Text('Analyze photo'),
+                    ),
+                    if (photoCategory?['category'] == 'academic') ...[
+                      Text('${photoCategory!['subject']} · ${photoCategory!['topic']}',
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Text(switch (photoCategory!['contentType']) {
+                        'problems' => 'These look like problems. Try a step-by-step explanation, or choose another goal.',
+                        'exam' => 'Prepare for this exam with related practice questions, or choose another goal.',
+                        _ => 'Build a study guide from this material, or choose another goal.',
+                      }),
+                      const Text('What would you like to do with this photo?'),
+                      for (final option in const [
+                        ('study', 'Study guide', 'Understand the key concepts and check recall'),
+                        ('practice', 'Practice guide', 'Try related questions with answer hints'),
+                        ('solve', 'Solve it step by step', 'Work through the problem with explanations'),
+                      ])
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(photoGoal == option.$1 ? Icons.radio_button_checked : Icons.radio_button_off),
+                          title: Text(option.$2), subtitle: Text(option.$3),
+                          onTap: busy ? null : () => setState(() { photoGoal = option.$1; photoGuide = null; }),
+                        ),
+                      FilledButton(onPressed: busy ? null : _generatePhotoGuide,
+                        child: const Text('Create my guide')),
+                      if (photoGuide != null) ...[
+                        const SizedBox(height: 16),
+                        Text(photoGuide!['title']!, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        SelectableText(photoGuide!['body']!),
+                        const Text('AI-generated from recognized text. Check the photo and verify the explanation.'),
+                      ],
+                    ],
+                  ],
                   const SizedBox(height: 20),
                   TextField(
                     controller: input,
                     enabled: !busy,
+                    onChanged: (_) {
+                      if (photo != null) setState(() {
+                        photoCategory = null;
+                        photoGuide = null;
+                        analyzedPhotoText = null;
+                      });
+                    },
                     minLines: 7,
                     maxLines: 14,
                     decoration: InputDecoration(
@@ -2056,7 +2155,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                   const SizedBox(height: 14),
                   Text(
                     taskModel?.available == true
-                        ? 'Describe everything in one go. Apple Intelligence separates assignments and breaks down larger tasks. Voice and photo input are drafted automatically when capture finishes.'
+                        ? 'Describe everything in one go. Apple Intelligence separates assignments and breaks down larger tasks. Voice input is drafted automatically. Photos open a guided choice before drafting.'
                         : 'Basic splitting: use one task per line, today / tomorrow / the day after tomorrow, month/day, and minutes. Apple Intelligence is needed to understand a paragraph automatically.',
                     style: const TextStyle(
                       color: muted,
@@ -2119,7 +2218,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                     ),
                   ),
                 const SizedBox(height: 20),
-                if (drafts == null && error != null && draftingError == null)
+                if (drafts == null && photo == null && error != null && draftingError == null)
                   TextButton(
                     onPressed: busy ? null : () => _createDrafts(basic: true),
                     child: const Text('Use basic splitting instead'),
@@ -2127,7 +2226,8 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
-                    onPressed: busy || taskModel == null
+                    onPressed: busy || taskModel == null ||
+                        (photo != null && photoCategory?['category'] != 'academic')
                         ? null
                         : () {
                             if (drafts == null) {

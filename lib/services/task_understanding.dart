@@ -135,6 +135,40 @@ class TaskUnderstanding {
     );
   }
 
+  Future<Map<String, String>> photoRequest(String method, String source,
+      {String? goal}) async {
+    if (!{'classifyPhoto', 'photoGuide'}.contains(method) ||
+        source.trim().isEmpty || source.length > maxInputLength) {
+      throw const FormatException('Use a readable photo with up to 3,000 characters.');
+    }
+    if (method == 'photoGuide' && !{'study', 'practice', 'solve'}.contains(goal)) {
+      throw const FormatException('Choose study, practice, or solve.');
+    }
+    final today = DateTime.now();
+    final referenceDate = '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+    try {
+      final value = await channel.invokeMapMethod<String, dynamic>(method, {
+        'text': source.trim(),
+        'referenceDate': referenceDate,
+        if (goal != null) 'goal': goal,
+      }).timeout(const Duration(seconds: 90));
+      final keys = method == 'classifyPhoto'
+          ? ['category', 'subject', 'topic', 'contentType'] : ['title', 'body'];
+      if (value == null || keys.any((key) => value[key] is! String ||
+          (value[key] as String).trim().isEmpty ||
+          (value[key] as String).length > 12000) ||
+          (method == 'classifyPhoto' &&
+          (!{'academic', 'nonAcademic', 'unclear'}.contains(value['category']) ||
+          !{'notes', 'problems', 'reading', 'exam', 'other'}.contains(value['contentType'])))) {
+        throw const FormatException('Unable to understand this photo. Please retry.');
+      }
+      return {for (final key in keys) key: (value[key] as String).trim()};
+    } on TimeoutException {
+      await cancel();
+      rethrow;
+    }
+  }
+
   Future<void> cancel() async {
     try {
       await channel
