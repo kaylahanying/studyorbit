@@ -10,9 +10,21 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'domain/task.dart';
 import 'domain/planner.dart';
 import 'domain/parser.dart';
-import 'services/store.dart';
+import 'domain/study_state.dart';
+import 'services/study_controller.dart';
 import 'services/media_cleanup.dart';
-import 'services/task_understanding.dart';
+import 'services/hosted_ai.dart';
+import 'services/study_ai.dart';
+import 'data/backup_codec.dart';
+import 'package:file_selector/file_selector.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:uuid/uuid.dart';
+
+part 'ui/capture_page.dart';
+part 'ui/task_editor.dart';
+part 'ui/focus_page.dart';
+part 'ui/hosted_controls.dart';
+part 'ui/backup_controls.dart';
 
 const ink = Color(0xFF222541),
     muted = Color(0xFF7B7D92),
@@ -34,7 +46,7 @@ const appDisplayName = 'Study Executive Assistant';
 
 class StudyOrbitApp extends StatelessWidget {
   const StudyOrbitApp({super.key, required this.store});
-  final StudyStore store;
+  final StudyController store;
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: appDisplayName,
@@ -48,6 +60,7 @@ class StudyOrbitApp extends StatelessWidget {
         surface: Colors.white,
       ),
       fontFamily: 'Arial',
+      fontFamilyFallback: const ['NotoSansSC'],
       textTheme: const TextTheme(
         bodyMedium: TextStyle(color: ink, fontSize: 14, height: 1.5),
       ),
@@ -85,7 +98,7 @@ class StudyOrbitApp extends StatelessWidget {
 
 class Home extends StatefulWidget {
   const Home({super.key, required this.store});
-  final StudyStore store;
+  final StudyController store;
   @override
   State<Home> createState() => _HomeState();
 }
@@ -94,9 +107,17 @@ class _HomeState extends State<Home> {
   int tab = 0;
   String filter = 'All';
   DateTime selectedDay = dayOnly(DateTime.now());
-  DateTime? planFrom;
-  final planner = Planner();
-  StudyStore get store => widget.store;
+  DateTime? selectedPlanDay;
+  DateTime get planDay {
+    final now = DateTime.now();
+    final selected = selectedPlanDay;
+    if (selected != null && !selected.isBefore(dayOnly(now))) return selected;
+    return now.hour >= 21
+        ? DateTime(now.year, now.month, now.day + 1) : dayOnly(now);
+  }
+  bool planning = false;
+  bool localPlan = false;
+  StudyController get store => widget.store;
   static const titles = [
     'Today\'s plan',
     'Tasks',
@@ -137,15 +158,13 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> capture([int mode = 0]) async {
-    final result = await Navigator.of(context).push<List<StudyTask>>(
+    await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) =>
-            CapturePage(mode: mode, deletePhotos: store.deletePhotos),
+        builder: (_) => CapturePage(
+          mode: mode, deletePhotos: store.deletePhotos, store: store,
+        ),
       ),
     );
-    if (result != null && result.isNotEmpty) {
-      await action(() => store.add(result));
-    }
   }
 
   Future<void> edit(StudyTask task) async {
@@ -153,14 +172,10 @@ class _HomeState extends State<Home> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => TaskEditor(task: StudyTask.fromJson(task.toJson())),
+      builder: (_) => TaskEditor(task: task),
     );
     if (edited != null) {
-      await action(() async {
-        final i = store.tasks.indexWhere((t) => t.id == task.id);
-        store.tasks[i] = edited;
-        await store.save('Edited task: ${edited.title}');
-      });
+      await action(() => store.saveTask(edited));
     }
   }
 
@@ -171,6 +186,97 @@ class _HomeState extends State<Home> {
       ),
     );
     _refresh();
+  }
+  Future<void> _planWithAi({bool replan = false}) async {
+    if (planning) return;
+    setState(() => planning = true);
+    final client = StudyAiClient(gateway: store.gateway);
+    final day = planDay;
+    try {
+      final snapshot = store.snapshot;
+      if (!await approveAiRequest(context, store.gateway, snapshot,
+          operation: replan ? 'replanning' : 'planning', day: day)) {
+        return;
+      }
+      final now = DateTime.now();
+      final advice = await client.advisePlan(context: snapshot, day: day, now: now, consent: true);
+      await store.applyAdvice(day, advice);
+      if (mounted) {
+        setState(() {
+          localPlan = false;
+        });
+      }
+    } catch (e) {
+      toast('AI planning failed. Your existing plan is unchanged. $e');
+    } finally {
+      client.close();
+      if (mounted) setState(() => planning = false);
+    }
+  }
+
+  Future<void> _choosePlanDay() async {
+    if (planning) return;
+    final now = DateTime.now();
+    final date = await showDatePicker(context: context, initialDate: planDay,
+        firstDate: dayOnly(now), lastDate: DateTime(now.year, now.month, now.day + 30));
+    if (date != null && mounted) setState(() => selectedPlanDay = date);
+  }
+
+  Widget _draftInbox() => store.drafts.isEmpty ? const SizedBox.shrink() : Card(
+    child: ListTile(
+      leading: const Icon(Icons.drafts_outlined, color: violet),
+      title: Text('${store.drafts.length} saved drafts to review'),
+      subtitle: const Text('Unconfirmed tasks and AI review suggestions are not scheduled.'),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => Navigator.of(context).push<void>(MaterialPageRoute(
+        builder: (_) => CapturePage(mode: 0, deletePhotos: store.deletePhotos,
+            store: store, reviewDrafts: true),
+      )),
+    ),
+  );
+
+  Widget _coursesSettings() {
+    final now = DateTime.now();
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
+    final date = store.coursesDate;
+    final stale = store.tomorrowSubjects.isNotEmpty &&
+        (date == null || dayOnly(date) != tomorrow);
+    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Dated courses', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        Text(date == null ? 'No course date confirmed' : 'Course date: ${date.year}/${date.month}/${date.day}'),
+        if (stale) const Text('These courses are undated or not for tomorrow. They are not used to prioritize tomorrow’s plan.',
+            style: TextStyle(color: Color(0xFF936128))),
+        Text(store.tomorrowSubjects.isEmpty ? 'No courses selected' : store.tomorrowSubjects.join(', ')),
+        TextButton.icon(onPressed: store.busy ? null : _editCourses,
+            icon: const Icon(Icons.calendar_today_outlined), label: const Text('Set or reconfirm courses')),
+      ],
+    )));
+  }
+
+  Future<void> _editCourses() async {
+    final now = DateTime.now();
+    final date = await showDatePicker(context: context,
+        initialDate: store.coursesDate ?? DateTime(now.year, now.month, now.day + 1),
+        firstDate: DateTime(2000), lastDate: DateTime(2100, 12, 31));
+    if (date == null || !mounted) return;
+    final selected = {...store.tomorrowSubjects};
+    final result = await showDialog<Set<String>>(context: context, builder: (ctx) => StatefulBuilder(
+      builder: (ctx, update) => AlertDialog(
+        title: Text('Courses for ${date.year}/${date.month}/${date.day}'),
+        content: SingleChildScrollView(child: Wrap(spacing: 8, children: [
+          for (final subject in subjects.where((s) => s != 'Other'))
+            FilterChip(label: Text(subject), selected: selected.contains(subject),
+              onSelected: (value) => update(() { value ? selected.add(subject) : selected.remove(subject); })),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, selected), child: const Text('Confirm dated courses')),
+        ],
+      ),
+    ));
+    if (result != null) await action(() => store.updateCourses(result, date));
   }
 
   @override
@@ -398,12 +504,12 @@ class _HomeState extends State<Home> {
   );
   Widget _today() {
     final now = DateTime.now();
-    final plan = planner.generate(
-      store.tasks,
-      now,
-      from: planFrom,
-      tomorrowSubjects: store.tomorrowSubjects,
-    );
+    final day = planDay;
+    final from = day == dayOnly(now) ? now : null;
+    final plan = localPlan
+        ? Planner().generate(store.tasks, day, from: from,
+            tomorrowSubjects: store.effectiveTomorrowSubjects(day))
+        : store.planFor(day, from: from);
     final pending = store.tasks.where((t) => !t.done).length;
     final finished = store.tasks.where((t) => t.done).length;
     final studyMinutes =
@@ -435,6 +541,7 @@ class _HomeState extends State<Home> {
         ),
         const SizedBox(height: 22),
         _hero(pending),
+        _draftInbox(),
         const SizedBox(height: 20),
         Row(
           children: [
@@ -660,20 +767,18 @@ class _HomeState extends State<Home> {
     children: [
       Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Text(
-              'Tonight\'s timeline',
-              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+              planDay == dayOnly(DateTime.now()) ? "Tonight's timeline"
+                  : '${planDay.month}/${planDay.day} study timeline',
+              style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
             ),
           ),
           TextButton.icon(
-            onPressed: () {
-              setState(() => planFrom = DateTime.now());
-              action(() => store.save('Replanned from the current time'));
-              toast('Remaining tasks replanned from now');
-            },
+            onPressed: planning ? null : () => _planWithAi(replan: true),
             icon: const Icon(Icons.auto_awesome_outlined, size: 15),
-            label: const Text('Replan', style: TextStyle(fontSize: 12)),
+            label: Text(planning ? 'Planning…' : 'AI replan',
+                style: const TextStyle(fontSize: 12)),
           ),
         ],
       ),
@@ -681,7 +786,50 @@ class _HomeState extends State<Home> {
         '16:00 — 21:00  ·  Make time for breaks',
         style: TextStyle(color: muted, fontSize: 11),
       ),
+      const SizedBox(height: 8),
+      Text('Planning day: ${planDay.year}/${planDay.month}/${planDay.day}',
+          style: const TextStyle(fontWeight: FontWeight.w700)),
+      Wrap(spacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        for (final offset in [0, 1])
+          ChoiceChip(
+            label: Text(offset == 0 ? 'Today' : 'Tomorrow'),
+            selected: planDay == DateTime(DateTime.now().year, DateTime.now().month,
+                DateTime.now().day + offset),
+            onSelected: planning ? null : (_) {
+              final now = DateTime.now();
+              setState(() => selectedPlanDay = DateTime(now.year, now.month, now.day + offset));
+            },
+          ),
+        TextButton.icon(onPressed: planning ? null : _choosePlanDay,
+            icon: const Icon(Icons.calendar_today_outlined), label: const Text('Choose planning date')),
+      ]),
       const SizedBox(height: 18),
+      Wrap(
+        spacing: 8,
+        children: [
+          TextButton.icon(
+            onPressed: planning ? null : () => _planWithAi(),
+            icon: const Icon(Icons.auto_awesome_outlined),
+            label: const Text('AI plan'),
+          ),
+          TextButton(
+            onPressed: planning ? null : () => setState(() {
+              localPlan = true;
+            }),
+            child: const Text('Use local plan'),
+          ),
+        ],
+      ),
+      Text(localPlan ? 'Local plan · deterministic scheduling'
+          : 'Local schedule · AI advice is used only after approval',
+          style: const TextStyle(fontSize: 11, color: muted)),
+      for (final id in plan.needsEstimates)
+        ListTile(
+          title: Text(store.tasks.firstWhere((t) => t.id == id).title),
+          subtitle: const Text('Unfinished · update remaining-work estimate'),
+          trailing: const Icon(Icons.edit_outlined),
+          onTap: () => edit(store.tasks.firstWhere((t) => t.id == id)),
+        ),
       if (plan.unscheduledMinutes.isNotEmpty)
         Container(
           margin: const EdgeInsets.only(bottom: 14),
@@ -691,7 +839,7 @@ class _HomeState extends State<Home> {
             borderRadius: BorderRadius.circular(14),
           ),
           child: Text(
-            '${plan.unscheduledMinutes.values.fold<int>(0, (a, b) => a + b)} minutes do not fit tonight. Shorten tasks, defer them, or continue tomorrow.',
+            '${plan.unscheduledMinutes.values.fold<int>(0, (a, b) => a + b)} minutes do not fit the selected evening. Shorten tasks, defer them, or choose another planning date.',
             style: const TextStyle(fontSize: 12, color: Color(0xFF936128)),
           ),
         ),
@@ -717,7 +865,7 @@ class _HomeState extends State<Home> {
               ),
               TextButton(
                 onPressed: () => action(() => store.sample()),
-                child: const Text('Load sample tasks →'),
+                child: const Text('Load sample tasks'),
               ),
             ],
           ),
@@ -725,7 +873,7 @@ class _HomeState extends State<Home> {
       for (final block in plan.blocks) _block(block),
       if (plan.blocks.isEmpty)
         const Text(
-          'Today\'s study window has ended. Rest and continue tomorrow.',
+          'This study window has ended. Rest now, and choose Tomorrow or another planning date to prepare your next evening.',
           style: TextStyle(color: muted),
         ),
     ],
@@ -874,12 +1022,12 @@ class _HomeState extends State<Home> {
                   for (final s in subjects.where((s) => s != 'Other'))
                     FilterChip(
                       label: Text(s, style: const TextStyle(fontSize: 11)),
-                      selected: store.tomorrowSubjects.contains(s),
+                      selected: store.effectiveTomorrowSubjects(DateTime.now()).contains(s),
                       onSelected: (v) => action(() async {
-                        v
-                            ? store.tomorrowSubjects.add(s)
-                            : store.tomorrowSubjects.remove(s);
-                        await store.save();
+                        final selected = {...store.effectiveTomorrowSubjects(DateTime.now())};
+                        v ? selected.add(s) : selected.remove(s);
+                        final now = DateTime.now();
+                        await store.updateCourses(selected, DateTime(now.year, now.month, now.day + 1));
                       }),
                     ),
                 ],
@@ -890,7 +1038,7 @@ class _HomeState extends State<Home> {
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
               ),
               const SizedBox(height: 8),
-              for (final s in store.tomorrowSubjects)
+              for (final s in store.effectiveTomorrowSubjects(DateTime.now()))
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text(
@@ -898,7 +1046,7 @@ class _HomeState extends State<Home> {
                     style: const TextStyle(fontSize: 12),
                   ),
                 ),
-              if (store.tomorrowSubjects.isEmpty)
+              if (store.effectiveTomorrowSubjects(DateTime.now()).isEmpty)
                 const Text(
                   'Choose subjects to create your checklist',
                   style: TextStyle(color: muted, fontSize: 12),
@@ -951,7 +1099,8 @@ class _HomeState extends State<Home> {
                   filter == 'Needs practice' && t.weak,
             )
             .toList()
-          ..sort((a, b) => a.due.compareTo(b.due));
+          ..sort((a, b) => a.due == null ? (b.due == null ? 0 : 1)
+              : b.due == null ? -1 : a.due!.compareTo(b.due!));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -977,6 +1126,7 @@ class _HomeState extends State<Home> {
           ],
         ),
         const SizedBox(height: 20),
+        _draftInbox(),
         if (list.isEmpty)
           _empty('No tasks here', 'Add a task or try another filter.'),
         for (final t in list) _taskCard(t),
@@ -1014,7 +1164,7 @@ class _HomeState extends State<Home> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        '${t.subject} · ${kindName(t.kind)} · Due ${t.due.month}/${t.due.day} · ${t.remaining} min left',
+                        '${t.subject} · ${kindName(t.kind)} · ${deadlineLabel(t)} · ${t.remaining} min left',
                         style: const TextStyle(color: muted, fontSize: 11),
                       ),
                     ],
@@ -1057,9 +1207,10 @@ class _HomeState extends State<Home> {
                   ),
                 if (!t.done)
                   TextButton.icon(
-                    onPressed: () => focus(t),
+                    onPressed: () => t.remainingSeconds == 0 ? edit(t) : focus(t),
                     icon: const Icon(Icons.play_arrow_rounded, size: 17),
-                    label: const Text('Focus', style: TextStyle(fontSize: 12)),
+                    label: Text(t.remainingSeconds == 0 ? 'Update estimate' : 'Focus',
+                        style: const TextStyle(fontSize: 12)),
                   ),
               ],
             ),
@@ -1087,10 +1238,7 @@ class _HomeState extends State<Home> {
       'This will delete ${t.title}. This cannot be undone.',
     );
     if (yes) {
-      await action(() async {
-        store.tasks.remove(t);
-        await store.save('Deleted task: ${t.title}');
-      });
+      await action(() => store.deleteTask(t));
     }
   }
 
@@ -1099,7 +1247,7 @@ class _HomeState extends State<Home> {
     final days = DateTime(selectedDay.year, selectedDay.month + 1, 0).day;
     final offset = first.weekday - 1;
     final daily = store.tasks
-        .where((t) => dayOnly(t.due) == selectedDay)
+        .where((t) => t.due != null && dayOnly(t.due!) == selectedDay)
         .toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1193,7 +1341,7 @@ class _HomeState extends State<Home> {
                       selectedDay.month,
                       i - offset + 1,
                     );
-                    final has = store.tasks.any((t) => dayOnly(t.due) == d);
+                    final has = store.tasks.any((t) => t.due != null && dayOnly(t.due!) == d);
                     return InkWell(
                       borderRadius: BorderRadius.circular(14),
                       onTap: () => setState(() => selectedDay = d),
@@ -1245,6 +1393,11 @@ class _HomeState extends State<Home> {
         if (daily.isEmpty)
           _empty('No tasks due today', 'Leave a little room for yourself.'),
         for (final t in daily) _taskCard(t),
+        if (store.tasks.any((t) => t.due == null)) ...[
+          const SizedBox(height: 20),
+          const Text('No deadline', style: TextStyle(fontWeight: FontWeight.w700)),
+          for (final t in store.tasks.where((t) => t.due == null)) _taskCard(t),
+        ],
       ],
     );
   }
@@ -1258,10 +1411,13 @@ class _HomeState extends State<Home> {
       ),
       const SizedBox(height: 8),
       const Text(
-        'Your data stays on your device. Your pace stays yours.',
+        'Your library stays on your device. AI sharing is optional, per request.',
         style: TextStyle(color: muted),
       ),
       const SizedBox(height: 24),
+      HostedServiceCard(gateway: store.gateway),
+      BackupControls(store: store),
+      _coursesSettings(),
       Card(
         child: Column(
           children: [
@@ -1269,7 +1425,7 @@ class _HomeState extends State<Home> {
               leading: Icon(Icons.shield_outlined, color: violet),
               title: Text('Local storage · No account needed'),
               subtitle: Text(
-                'Tasks and records stay on this device and are not uploaded.',
+                'Encrypted local library. Only approved AI context is sent to the named hosted provider.',
               ),
             ),
             SwitchListTile(
@@ -1278,10 +1434,7 @@ class _HomeState extends State<Home> {
                 'Only app copies are deleted. Your original photos stay safe.',
               ),
               value: store.deletePhotos,
-              onChanged: (v) => action(() async {
-                store.deletePhotos = v;
-                await store.save();
-              }),
+              onChanged: (v) => action(() => store.setDeletePhotos(v)),
             ),
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
@@ -1327,21 +1480,15 @@ class _HomeState extends State<Home> {
               leading: const Icon(Icons.delete_sweep_outlined),
               title: const Text('Clear study history'),
               subtitle: const Text(
-                'Keep tasks and remove activity history and total focus time',
+                'Remove activity history; keep actual focus totals on tasks',
               ),
               onTap: () async {
                 if (await confirm(
                   context,
                   'Clear study history?',
-                  'Activity history and total focus time will be permanently deleted.',
+                  'Activity history will be permanently deleted. Actual task focus totals are preserved.',
                 )) {
-                  await action(() async {
-                    store.history.clear();
-                    for (final t in store.tasks) {
-                      t.spentSeconds = 0;
-                    }
-                    await store.save();
-                  });
+                  await action(() => store.clearHistory());
                 }
               },
             ),
@@ -1385,9 +1532,21 @@ class _HomeState extends State<Home> {
             style: const TextStyle(fontSize: 11, color: muted),
           ),
         ),
+      if (store.evidence.isNotEmpty) ...[
+        const SizedBox(height: 20),
+        const Text('Saved sources and marked feedback',
+            style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
+        for (final source in store.evidence.reversed)
+          Card(child: ExpansionTile(
+            title: Text(source.feedback ? 'Marked feedback' : 'Task source'),
+            subtitle: Text('${source.createdAt.year}/${source.createdAt.month}/${source.createdAt.day}'),
+            children: [Padding(padding: const EdgeInsets.all(16),
+                child: SelectableText(source.text))],
+          )),
+      ],
       const SizedBox(height: 20),
       const Text(
-        '$appDisplayName · MVP 1.0\nApple Intelligence drafts tasks on supported iPhones. Scheduling stays local. Subscriptions and encrypted backups are not available yet.',
+        '$appDisplayName\nHosted AI requires approval for every request. Scheduling, OCR and speech stay on device. Password-encrypted backups move your library without sync.',
         style: TextStyle(fontSize: 11, color: muted, height: 1.8),
       ),
     ],
@@ -1422,13 +1581,14 @@ class _HomeState extends State<Home> {
 Future<bool> confirm(
   BuildContext context,
   String title,
-  String message,
-) async =>
+  String message, {
+  String confirmLabel = 'Delete',
+}) async =>
     await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(title),
-        content: Text(message),
+        content: SingleChildScrollView(child: Text(message)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -1436,7 +1596,7 @@ Future<bool> confirm(
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
+            child: Text(confirmLabel),
           ),
         ],
       ),
@@ -1497,1140 +1657,3 @@ class OrbitPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-class CapturePage extends StatefulWidget {
-  const CapturePage({
-    super.key,
-    required this.mode,
-    required this.deletePhotos,
-  });
-  final int mode;
-  final bool deletePhotos;
-  @override
-  State<CapturePage> createState() => _CapturePageState();
-}
-
-class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
-  late int mode = widget.mode;
-  final input = TextEditingController();
-  final captureScroll = ScrollController();
-  final taskUnderstanding = TaskUnderstanding();
-  TaskModelAvailability? taskModel;
-  bool generatingDrafts = false, draftsUseAI = false;
-  String? draftingError;
-  final speech = const MethodChannel('si.studyorbit/offline_speech');
-  bool busy = false, listening = false;
-  bool stoppingSpeech = false;
-  String speechStatus = '', speechBaseText = '';
-  String? speechErrorCode;
-  String? error, photoPath;
-  Uint8List? photo;
-  List<StudyTask>? drafts;
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    unawaited(_refreshTaskModel());
-    speech.setMethodCallHandler((call) async {
-      if (!mounted || !listening) return;
-      if (call.method == 'listening') {
-        setState(
-          () => speechStatus = 'Listening. Speak now, then tap Stop recording.',
-        );
-      } else if (call.method == 'partialResult' && call.arguments is String) {
-        setState(() {
-          input.text = _withTranscript(call.arguments as String);
-          speechStatus = 'Listening. Your words appear below.';
-        });
-      }
-    });
-  }
-
-  Future<void> _refreshTaskModel() async {
-    final status = await taskUnderstanding.availability();
-    if (mounted) setState(() => taskModel = status);
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && !busy) {
-      unawaited(_refreshTaskModel());
-    }
-  }
-
-  void _showDraftStart() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && captureScroll.hasClients) {
-        captureScroll.animateTo(
-          0,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-      }
-    });
-  }
-
-  Future<void> _createDrafts({bool basic = false}) async {
-    if (busy) return;
-    final text = input.text.trim();
-    if (text.isEmpty) {
-      fail('Enter your study tasks first.');
-      return;
-    }
-    final useAI = !basic && taskModel?.available == true;
-    if (useAI && text.length > TaskUnderstanding.maxInputLength) {
-      fail(
-        'Describe up to 3,000 characters at a time. Split longer notes into smaller batches.',
-      );
-      return;
-    }
-    setState(() {
-      busy = true;
-      generatingDrafts = true;
-      error = null;
-      draftingError = null;
-      speechErrorCode = null;
-    });
-    _showDraftStart();
-    try {
-      final now = DateTime.now();
-      final result = useAI
-          ? await taskUnderstanding.understand(text, now)
-          : parseDrafts(text, now);
-      if (mounted) {
-        setState(() {
-          drafts = result;
-          draftsUseAI = useAI;
-        });
-        _showDraftStart();
-      }
-    } on PlatformException catch (e) {
-      _failDraft(
-        e.message ?? 'Apple Intelligence could not draft your tasks. Try again or use basic splitting.',
-      );
-      await _refreshTaskModel();
-    } on TimeoutException {
-      _failDraft(
-        'Task drafting took too long. Try a shorter description or use basic splitting.',
-      );
-    } on FormatException catch (e) {
-      _failDraft(e.message);
-    } catch (_) {
-      _failDraft(
-        'Unable to draft tasks. Your original text is still here. Try again or use basic splitting.',
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          busy = false;
-          generatingDrafts = false;
-        });
-      }
-    }
-  }
-
-  void _failDraft(String message) {
-    if (mounted) {
-      setState(() {
-        error = message;
-        draftingError = message;
-      });
-    }
-  }
-
-  String _withTranscript(String transcript) =>
-      [speechBaseText, transcript.trim()].where((s) => s.isNotEmpty).join('\n');
-
-  Future<void> _cancelSpeech() async {
-    try {
-      await speech.invokeMethod<void>('cancel');
-    } catch (_) {
-      // The platform may have already released the speech session.
-    }
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    if (generatingDrafts) unawaited(taskUnderstanding.cancel());
-    captureScroll.dispose();
-    speech.setMethodCallHandler(null);
-    if (listening) unawaited(_cancelSpeech());
-    input.dispose();
-    super.dispose();
-  }
-
-  void fail(String message) {
-    if (mounted) setState(() => error = message);
-  }
-
-  bool get mobile =>
-      !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.android ||
-          defaultTargetPlatform == TargetPlatform.iOS);
-  Future<void> scan(ImageSource source) async {
-    if (!mobile) {
-      fail(
-        'Photo scanning requires an Android or iOS phone. Use text input on this platform.',
-      );
-      return;
-    }
-    setState(() {
-      busy = true;
-      error = null;
-      draftingError = null;
-    });
-    TextRecognizer? recognizer;
-    String? currentPath;
-    var understoodPhoto = false;
-    try {
-      final picked = await ImagePicker().pickImage(
-        source: source,
-        maxWidth: 2400,
-        imageQuality: 90,
-        requestFullMetadata: false,
-      );
-      if (picked == null) return;
-      currentPath = picked.path;
-      await retainLocalPhoto(picked.path);
-      final bytes = await picked.readAsBytes();
-      recognizer = TextRecognizer(script: TextRecognitionScript.latin);
-      final recognized = await recognizer.processImage(
-        InputImage.fromFilePath(picked.path),
-      );
-      if (!mounted) return;
-      setState(() {
-        photo = bytes;
-        photoPath = picked.path;
-        input.text = recognized.text;
-      });
-      understoodPhoto = recognized.text.trim().isNotEmpty;
-      if (recognized.text.trim().isEmpty) {
-        fail('No text found. Try another photo or type your tasks.');
-      }
-    } catch (_) {
-      fail(
-        'Unable to scan this photo. Check camera permissions and on-device models, or use text input.',
-      );
-    } finally {
-      await recognizer?.close();
-      if (widget.deletePhotos && currentPath != null) {
-        try {
-          await deleteLocalPhoto(currentPath);
-        } catch (_) {
-          fail(
-            'Unable to delete the temporary photo. Clear app data in your device settings.',
-          );
-        }
-      }
-      if (mounted) setState(() => busy = false);
-    }
-    if (mounted &&
-        understoodPhoto &&
-        error == null &&
-        taskModel?.available == true) {
-      await _createDrafts();
-    }
-  }
-
-  Future<void> dictate() async {
-    if (listening) {
-      if (stoppingSpeech) return;
-      setState(() {
-        stoppingSpeech = true;
-        speechStatus = 'Finishing transcription…';
-      });
-      try {
-        await speech.invokeMethod<void>('stop');
-      } on PlatformException catch (e) {
-        fail(e.message ?? 'Unable to stop recording. Please try again.');
-        await _cancelSpeech();
-      } catch (_) {
-        fail('Unable to stop recording. Please try again.');
-        await _cancelSpeech();
-      }
-      return;
-    }
-    if (!mobile) {
-      fail(
-        'Voice input requires an Android or iOS phone with on-device speech support. Use text input instead.',
-      );
-      return;
-    }
-    setState(() {
-      busy = true;
-      listening = true;
-      stoppingSpeech = false;
-      speechBaseText = input.text.trim();
-      speechStatus =
-          'Preparing voice input. Allow microphone and speech access if asked.';
-      speechErrorCode = null;
-      error = null;
-      draftingError = null;
-    });
-    var transcribed = false;
-    try {
-      final result = await speech
-          .invokeMethod<String>('recognize', {'locale': 'en-US'})
-          .timeout(const Duration(seconds: 75));
-      if (mounted && result != null && result.trim().isNotEmpty) {
-        setState(() => input.text = _withTranscript(result));
-        transcribed = true;
-      } else if (mounted &&
-          error == null &&
-          input.text.trim() == speechBaseText) {
-        fail(
-          'No speech was recognized. Tap Start voice input and speak clearly.',
-        );
-      }
-    } on PlatformException catch (e) {
-      if (mounted) setState(() => speechErrorCode = e.code);
-      fail(
-        e.message ?? 'On-device speech recognition is unavailable. Use text input instead.',
-      );
-    } on MissingPluginException {
-      fail(
-        'Voice input is not connected in this app version. Install the latest TestFlight build.',
-      );
-    } on TimeoutException {
-      await _cancelSpeech();
-      fail(
-        'Voice input timed out. Check microphone permissions and try again.',
-      );
-    } catch (_) {
-      fail(
-        'On-device speech recognition is unavailable. Use text input instead.',
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          busy = false;
-          listening = false;
-          stoppingSpeech = false;
-          speechStatus = '';
-        });
-      }
-    }
-    if (mounted && transcribed && taskModel?.available == true) {
-      await _createDrafts();
-    }
-  }
-
-  Future<void> editDraft(int index) async {
-    final edited = await showModalBottomSheet<StudyTask>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) =>
-          TaskEditor(task: StudyTask.fromJson(drafts![index].toJson())),
-    );
-    if (edited != null) setState(() => drafts![index] = edited);
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(
-        drafts == null ? 'Add your study tasks' : 'Review your task drafts',
-      ),
-    ),
-    body: SafeArea(
-      child: SingleChildScrollView(
-        controller: captureScroll,
-        padding: const EdgeInsets.fromLTRB(22, 12, 22, 40),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 650),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'CAPTURE → CONFIRM → PLAN',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: violet,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 2,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  drafts == null
-                      ? 'Write down what you need to do.'
-                      : 'Check the details before you start.',
-                  style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  drafts == null
-                      ? 'Add homework, quiz corrections, exams, and preparation together.'
-                      : draftsUseAI
-                      ? 'Apple Intelligence split your input into task drafts. Review the assignments, due dates, estimated time, and steps before adding them.'
-                      : 'Basic drafts use one task per line. Check each subject, date, and duration. Unrecognized dates default to tomorrow and durations to 30 minutes.',
-                  style: const TextStyle(color: muted, fontSize: 13),
-                ),
-                const SizedBox(height: 22),
-                if (drafts == null) ...[
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            generatingDrafts
-                                ? 'Understanding and splitting your tasks…'
-                                : taskModel?.available == true
-                                ? 'Apple Intelligence · On device'
-                                : 'Task drafting',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            taskModel?.message ??
-                                'Checking Apple Intelligence availability…',
-                            style: const TextStyle(fontSize: 12, color: muted),
-                          ),
-                          if (generatingDrafts) ...[
-                            const SizedBox(height: 12),
-                            const LinearProgressIndicator(),
-                          ],
-                          if (draftingError != null) ...[
-                            const SizedBox(height: 12),
-                            Text(
-                              draftingError!,
-                              style: const TextStyle(color: Colors.redAccent),
-                            ),
-                            TextButton(
-                              onPressed: busy
-                                  ? null
-                                  : () => _createDrafts(basic: true),
-                              child: const Text('Use basic splitting instead'),
-                            ),
-                          ],
-                          if (taskModel?.available == false)
-                            TextButton(
-                              onPressed: busy ? null : _refreshTaskModel,
-                              child: const Text('Check again'),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  SegmentedButton<int>(
-                    segments: const [
-                      ButtonSegment(
-                        value: 0,
-                        icon: Icon(Icons.edit_note),
-                        label: Text('Text'),
-                      ),
-                      ButtonSegment(
-                        value: 1,
-                        icon: Icon(Icons.camera_alt_outlined),
-                        label: Text('Photo'),
-                      ),
-                      ButtonSegment(
-                        value: 2,
-                        icon: Icon(Icons.mic_none),
-                        label: Text('Voice'),
-                      ),
-                    ],
-                    selected: {mode},
-                    onSelectionChanged: busy
-                        ? null
-                        : (v) => setState(() => mode = v.first),
-                  ),
-                  const SizedBox(height: 20),
-                  if (mode == 1) ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: busy
-                                ? null
-                                : () => scan(ImageSource.camera),
-                            icon: const Icon(Icons.camera_alt_outlined),
-                            label: const Text('Take a photo'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: busy
-                                ? null
-                                : () => scan(ImageSource.gallery),
-                            icon: const Icon(Icons.photo_outlined),
-                            label: const Text('Choose from library'),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Text recognition runs on your device. Photos are used for this draft and are not uploaded.',
-                      style: TextStyle(fontSize: 11, color: muted),
-                    ),
-                  ],
-                  if (mode == 2) ...[
-                    FilledButton.icon(
-                      onPressed: stoppingSpeech || busy && !listening
-                          ? null
-                          : dictate,
-                      icon: Icon(listening ? Icons.stop : Icons.mic_none),
-                      label: Text(
-                        stoppingSpeech
-                            ? 'Finishing…'
-                            : listening
-                            ? 'Stop recording'
-                            : 'Start voice input',
-                      ),
-                    ),
-                    if (listening) ...[
-                      const SizedBox(height: 12),
-                      Text(speechStatus, semanticsLabel: speechStatus),
-                    ],
-                    if (error != null && draftingError == null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        error!,
-                        style: const TextStyle(color: Colors.redAccent),
-                      ),
-                      if (speechErrorCode == 'permission_denied')
-                        TextButton(
-                          onPressed: () async {
-                            try {
-                              await speech.invokeMethod<void>('openSettings');
-                            } catch (_) {
-                              fail(
-                                'Open your device Settings and allow Microphone and Speech Recognition for this app.',
-                              );
-                            }
-                          },
-                          child: const Text('Open Settings'),
-                        ),
-                    ],
-                    const SizedBox(height: 12),
-                    const Text(
-                      'An English offline speech model must be installed. If unavailable, the app will let you know and will not use cloud recognition.',
-                      style: TextStyle(fontSize: 11, color: muted),
-                    ),
-                  ],
-                  if (photo != null) ...[
-                    const SizedBox(height: 16),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: Image.memory(
-                        photo!,
-                        height: 160,
-                        width: double.infinity,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        setState(() {
-                          photo = null;
-                          photoPath = null;
-                        });
-                      },
-                      child: const Text('Remove photo preview'),
-                    ),
-                  ],
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: input,
-                    enabled: !busy,
-                    minLines: 7,
-                    maxLines: 14,
-                    decoration: InputDecoration(
-                      labelText: 'Study tasks / Recognized text',
-                      alignLabelWithHint: true,
-                      hintText: taskModel?.available == true
-                          ? 'For example: I have math exercises due tomorrow, a physics test on Friday, and an English essay to research and write this week.'
-                          : 'One task per line, for example:\nMath exercises due tomorrow, 30 minutes\nPhysics review today, 45 minutes',
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    taskModel?.available == true
-                        ? 'Describe everything in one go. Apple Intelligence separates assignments and breaks down larger tasks. Voice and photo input are drafted automatically when capture finishes.'
-                        : 'Basic splitting: use one task per line, today / tomorrow / the day after tomorrow, month/day, and minutes. Apple Intelligence is needed to understand a paragraph automatically.',
-                    style: const TextStyle(
-                      color: muted,
-                      fontSize: 11,
-                      height: 1.7,
-                    ),
-                  ),
-                  if (busy)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 20),
-                      child: LinearProgressIndicator(),
-                    ),
-                ] else ...[
-                  if (photo != null)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: Image.memory(photo!, height: 140),
-                    ),
-                  for (var i = 0; i < drafts!.length; i++)
-                    Card(
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.all(14),
-                        leading: CircleAvatar(
-                          backgroundColor: const Color(0xFFEFEDFB),
-                          child: Text(
-                            '${i + 1}',
-                            style: const TextStyle(color: violet),
-                          ),
-                        ),
-                        title: Text(drafts![i].title),
-                        subtitle: Text(
-                          '${drafts![i].subject} · ${kindName(drafts![i].kind)}\nDue ${drafts![i].due.month}/${drafts![i].due.day} · ${drafts![i].minutes} min',
-                          style: const TextStyle(fontSize: 12, height: 1.8),
-                        ),
-                        onTap: () => editDraft(i),
-                        trailing: IconButton(
-                          tooltip: 'Remove draft',
-                          onPressed: () => setState(() => drafts!.removeAt(i)),
-                          icon: const Icon(Icons.close, size: 18),
-                        ),
-                      ),
-                    ),
-                  TextButton.icon(
-                    onPressed: () => setState(() => drafts = null),
-                    icon: const Icon(Icons.arrow_back, size: 16),
-                    label: const Text('Edit original text'),
-                  ),
-                ],
-                if (error != null &&
-                    draftingError == null &&
-                    (mode != 2 || drafts != null))
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: Text(
-                      error!,
-                      style: const TextStyle(
-                        color: Colors.redAccent,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 20),
-                if (drafts == null && error != null && draftingError == null)
-                  TextButton(
-                    onPressed: busy ? null : () => _createDrafts(basic: true),
-                    child: const Text('Use basic splitting instead'),
-                  ),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: busy || taskModel == null
-                        ? null
-                        : () {
-                            if (drafts == null) {
-                              unawaited(_createDrafts());
-                            } else if (drafts!.isEmpty) {
-                              fail('Keep at least one task.');
-                            } else {
-                              Navigator.pop(context, drafts);
-                            }
-                          },
-                    icon: Icon(
-                      drafts == null
-                          ? Icons.auto_awesome_outlined
-                          : Icons.check_rounded,
-                    ),
-                    label: Text(
-                      drafts == null
-                          ? 'Create task drafts'
-                          : 'Confirm and add ${drafts!.length} ${drafts!.length == 1 ? 'task' : 'tasks'}',
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-class TaskEditor extends StatefulWidget {
-  const TaskEditor({super.key, required this.task});
-  final StudyTask task;
-  @override
-  State<TaskEditor> createState() => _TaskEditorState();
-}
-
-class _TaskEditorState extends State<TaskEditor> {
-  final form = GlobalKey<FormState>();
-  late final title = TextEditingController(text: widget.task.title);
-  late final minutes = TextEditingController(text: '${widget.task.minutes}');
-  late final steps = TextEditingController(text: widget.task.steps.join('\n'));
-  late final task = widget.task;
-  @override
-  void dispose() {
-    title.dispose();
-    minutes.dispose();
-    steps.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.fromLTRB(
-      24,
-      20,
-      24,
-      MediaQuery.viewInsetsOf(context).bottom + 24,
-    ),
-    child: SingleChildScrollView(
-      child: Form(
-        key: form,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Edit study task',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 20),
-            TextFormField(
-              controller: title,
-              decoration: const InputDecoration(labelText: 'Task name'),
-              maxLength: 200,
-              validator: (s) =>
-                  s == null || s.trim().isEmpty ? 'Enter a task name' : null,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    isExpanded: true,
-                    initialValue: task.subject,
-                    decoration: const InputDecoration(labelText: 'Subject'),
-                    items: [
-                      for (final s in subjects)
-                        DropdownMenuItem(value: s, child: Text(s)),
-                    ],
-                    onChanged: (v) => setState(() => task.subject = v!),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: DropdownButtonFormField<TaskKind>(
-                    isExpanded: true,
-                    initialValue: task.kind,
-                    decoration: const InputDecoration(labelText: 'Task type'),
-                    items: [
-                      for (final k in TaskKind.values)
-                        DropdownMenuItem(value: k, child: Text(kindName(k))),
-                    ],
-                    onChanged: (v) => setState(() => task.kind = v!),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final d = await showDatePicker(
-                        context: context,
-                        initialDate: task.due,
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime(2100),
-                      );
-                      if (d != null) setState(() => task.due = d);
-                    },
-                    icon: const Icon(Icons.calendar_today, size: 15),
-                    label: Text(
-                      '${task.due.year}/${task.due.month}/${task.due.day}',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextFormField(
-                    controller: minutes,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Estimated minutes',
-                    ),
-                    validator: (s) {
-                      final n = int.tryParse(s ?? '');
-                      return n == null || n < 5 || n > 600
-                          ? 'Enter 5–600 minutes'
-                          : null;
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Difficulty: ${['Easy', 'Moderate', 'Challenging'][task.difficulty - 1]}',
-            ),
-            Slider(
-              value: task.difficulty.toDouble(),
-              min: 1,
-              max: 3,
-              divisions: 2,
-              onChanged: (v) => setState(() => task.difficulty = v.round()),
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('I need extra practice in this subject'),
-              value: task.weak,
-              onChanged: (v) => setState(() => task.weak = v),
-            ),
-            TextFormField(
-              controller: steps,
-              minLines: 2,
-              maxLines: 5,
-              decoration: const InputDecoration(
-                labelText: 'Steps (one per line, optional)',
-                hintText:
-                    'Gather materials\nComplete exercises\nCheck and correct',
-              ),
-            ),
-            const SizedBox(height: 22),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () {
-                  if (form.currentState!.validate()) {
-                    task.title = title.text.trim();
-                    task.minutes = int.parse(minutes.text);
-                    task.steps = steps.text
-                        .split('\n')
-                        .map((s) => s.trim())
-                        .where((s) => s.isNotEmpty)
-                        .toList();
-                    Navigator.pop(context, task);
-                  }
-                },
-                child: const Text('Save changes'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-class FocusPage extends StatefulWidget {
-  const FocusPage({
-    super.key,
-    required this.task,
-    required this.store,
-    this.minutes,
-  });
-  final StudyTask task;
-  final StudyStore store;
-  final int? minutes;
-  @override
-  State<FocusPage> createState() => _FocusPageState();
-}
-
-class _FocusPageState extends State<FocusPage> with WidgetsBindingObserver {
-  Timer? timer;
-  DateTime? started;
-  int accumulated = 0, recorded = 0;
-  bool running = false, breakMode = false, saving = false;
-  late final int targetSeconds =
-      math.min(widget.minutes ?? 25, math.max(1, widget.task.remaining)) * 60;
-  final checked = <int>{};
-  int get elapsed =>
-      accumulated +
-      (running && started != null
-          ? DateTime.now().difference(started!).inSeconds
-          : 0);
-  int get target => breakMode ? 5 * 60 : targetSeconds;
-  int get left => (target - elapsed).clamp(0, target);
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      if (running && left == 0) {
-        pause();
-        SystemSound.play(SystemSoundType.alert);
-        showDialog<void>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text(
-              breakMode ? 'Break finished' : 'Focus session finished',
-            ),
-            content: Text(
-              breakMode ? 'Return to your study plan when you are ready.' : 'Look away, drink some water, and take a five-minute break.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Got it'),
-              ),
-            ],
-          ),
-        );
-      }
-      setState(() {});
-    });
-  }
-
-  void pause() {
-    if (running) {
-      accumulated = elapsed;
-      running = false;
-      started = null;
-      setState(() {});
-    }
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) {
-      pause();
-      persist();
-    }
-  }
-
-  Future<void> persist() async {
-    if (breakMode) return;
-    final delta = elapsed - recorded;
-    if (delta <= 0) return;
-    recorded += delta;
-    widget.task.spentSeconds += delta;
-    try {
-      await widget.store.save(
-        'Focused for ${delta ~/ 60} min ${delta % 60} sec: ${widget.task.title}',
-      );
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Unable to save your study record. Check device storage.',
-            ),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> leave() async {
-    if (saving) return;
-    setState(() => saving = true);
-    pause();
-    await persist();
-    if (mounted) Navigator.pop(context);
-  }
-
-  @override
-  void dispose() {
-    timer?.cancel();
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => PopScope(
-    canPop: false,
-    onPopInvokedWithResult: (didPop, result) {
-      if (!didPop && !saving) leave();
-    },
-    child: Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          tooltip: 'Save and go back',
-          onPressed: saving ? null : leave,
-          icon: const Icon(Icons.arrow_back),
-        ),
-        title: const Text('Focus mode'),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Column(
-                children: [
-                  const SizedBox(height: 24),
-                  Text(
-                    breakMode ? 'Give your mind a break' : 'One task at a time',
-                    style: const TextStyle(color: muted, letterSpacing: 1),
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    widget.task.title,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${widget.task.subject} · ${kindName(widget.task.kind)}',
-                    style: const TextStyle(color: muted),
-                  ),
-                  const SizedBox(height: 36),
-                  SizedBox(
-                    width: 250,
-                    height: 250,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        SizedBox.expand(
-                          child: CircularProgressIndicator(
-                            value: left / target,
-                            strokeWidth: 8,
-                            backgroundColor: const Color(0xFFE7E4F6),
-                            color: breakMode ? const Color(0xFF79A68D) : violet,
-                            strokeCap: StrokeCap.round,
-                          ),
-                        ),
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '${(left ~/ 60).toString().padLeft(2, '0')}:${(left % 60).toString().padLeft(2, '0')}',
-                              style: const TextStyle(
-                                fontSize: 57,
-                                fontWeight: FontWeight.w300,
-                                color: ink,
-                              ),
-                            ),
-                            Text(
-                              breakMode
-                                  ? 'Break time'
-                                  : running
-                                  ? 'Getting closer to your goal'
-                                  : 'Start when you are ready',
-                              style: const TextStyle(
-                                color: muted,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 35),
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: saving || left == 0
-                            ? null
-                            : () {
-                                if (running) {
-                                  pause();
-                                  persist();
-                                } else {
-                                  setState(() {
-                                    running = true;
-                                    started = DateTime.now();
-                                  });
-                                }
-                              },
-                        icon: Icon(
-                          running
-                              ? Icons.pause_rounded
-                              : Icons.play_arrow_rounded,
-                        ),
-                        label: Text(running ? 'Pause' : 'Start'),
-                      ),
-                      OutlinedButton(
-                        onPressed: saving
-                            ? null
-                            : () async {
-                                pause();
-                                await persist();
-                                setState(() {
-                                  breakMode = !breakMode;
-                                  accumulated = 0;
-                                  recorded = 0;
-                                });
-                              },
-                        child: Text(
-                          breakMode
-                              ? 'Back to studying'
-                              : 'Take a 5-minute break',
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  for (var i = 0; i < widget.task.steps.length; i++)
-                    CheckboxListTile(
-                      value: checked.contains(i),
-                      onChanged: (v) => setState(() {
-                        v == true ? checked.add(i) : checked.remove(i);
-                      }),
-                      title: Text(
-                        widget.task.steps[i],
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                      subtitle: const Text(
-                        'Session checklist',
-                        style: TextStyle(fontSize: 10, color: muted),
-                      ),
-                      controlAffinity: ListTileControlAffinity.leading,
-                    ),
-                  const SizedBox(height: 20),
-                  TextButton.icon(
-                    onPressed: saving || widget.task.done
-                        ? null
-                        : () async {
-                            setState(() => saving = true);
-                            pause();
-                            await persist();
-                            try {
-                              await widget.store.toggle(widget.task);
-                              if (mounted) Navigator.pop(this.context);
-                            } catch (_) {
-                              if (mounted) {
-                                setState(() => saving = false);
-                                ScaffoldMessenger.of(this.context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Unable to save. Please try again. ',
-                                    ),
-                                  ),
-                                );
-                              }
-                            }
-                          },
-                    icon: const Icon(Icons.check_circle_outline),
-                    label: const Text('Mark task complete'),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Sessions pause when you leave the app. Reminders work while this screen is open.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 11, color: muted),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-}

@@ -52,10 +52,11 @@ void main() {
     );
   });
   test('Completed and deferred tasks do not enter tonight; recorded study reduces duration', () {
-    final complete = task('done', 30)..done = true;
+    final complete = task('done', 30).copyWith(done: true);
     final deferred = task('later', 30)
-      ..deferredUntil = day.add(const Duration(days: 1));
-    final active = task('active', 30)..spentSeconds = 600;
+        .copyWith(deferredUntil: calendarDayAfter(day));
+    final active = task('active', 30)
+        .copyWith(spentSeconds: 600, remainingSeconds: 1200);
     final plan = Planner().generate([complete, deferred, active], day);
     expect(
       plan.blocks.where((b) => b.taskId != null).map((b) => b.taskId).toSet(),
@@ -86,7 +87,7 @@ void main() {
     expect(plan.unscheduledMinutes, {'a': 70});
   });
   test('Tomorrow courses influence equal priority tasks', () {
-    final english = task('eng', 30)..subject = 'English';
+    final english = task('eng', 30).copyWith(subject: 'English');
     final math = task('math', 30);
     final plan = Planner().generate(
       [math, english],
@@ -140,4 +141,60 @@ void main() {
       expect(drafts[1].steps.first, 'Gather instructions and materials');
     },
   );
+
+  test('Unknown dates and exhausted unfinished tasks remain explicit', () {
+    final unknown = task('unknown', 20).copyWith(due: null);
+    final exhausted = task('estimate', 20).copyWith(remainingSeconds: 0);
+    final plan = Planner().generate([unknown, exhausted], day);
+    expect(plan.blocks.where((block) => block.taskId != null)
+        .map((block) => block.taskId), ['unknown']);
+    expect(plan.needsEstimates, ['estimate']);
+    expect(exhausted.done, isFalse);
+  });
+
+  test('Advice cannot bypass prerequisites or protected periods', () {
+    final plan = Planner().generate([task('a', 70), task('b', 30)], day,
+      order: ['b', 'a'], dependencies: {'b': ['a']}, reasons: {'b': 'After practice'});
+    final blocks = plan.blocks.where((block) => block.taskId != null).toList();
+    expect(blocks.first.taskId, 'a');
+    final dependent = blocks.firstWhere((block) => block.taskId == 'b');
+    expect(dependent.subtitle, 'After practice');
+    expect(blocks.where((block) => block.taskId == 'a')
+        .every((block) => !block.end.isAfter(dependent.start)), isTrue);
+    for (final block in blocks) {
+      expect(block.start.hour, greaterThanOrEqualTo(16));
+      expect(block.end.isAfter(DateTime(2026, 11, 2, 21)), isFalse);
+      expect(block.start.isBefore(DateTime(2026, 11, 2, 18, 30)) &&
+          block.end.isAfter(DateTime(2026, 11, 2, 18)), isFalse);
+      expect(block.end.isAfter(DateTime(2026, 11, 2, 20, 40)), isFalse);
+    }
+  });
+
+  test('Ineligible and cyclic dependencies never become available', () {
+    final deferred = task('a', 20).copyWith(deferredUntil: calendarDayAfter(day));
+    expect(Planner().generate([deferred, task('b', 20)], day,
+      dependencies: {'b': ['a']}).unscheduledMinutes, {'b': 20});
+    final cyclic = Planner().generate([task('a', 20), task('b', 20)], day,
+      dependencies: {'a': ['b'], 'b': ['a']});
+    expect(cyclic.blocks.where((block) => block.taskId != null), isEmpty);
+    expect(cyclic.unscheduledMinutes, {'a': 20, 'b': 20});
+  });
+
+  test('Basic parsing never invents a due date or turns question ranges into dates', () {
+    final drafts = parseDrafts('Math questions 1-8\nHistory essay\nPhysics 2026-02-30', day);
+    expect(drafts.every((task) => task.due == null), isTrue);
+    expect(parseDrafts('Math tomorrow', DateTime(2026, 12, 31)).single.due,
+      DateTime(2027, 1, 1));
+    expect(parseDrafts('Math the day after tomorrow', DateTime(2026, 2, 28)).single.due,
+      DateTime(2026, 3, 2));
+  });
+
+  test('Date-only deadlines remain date-only and clocks require a known date', () {
+    final tasks = parseDrafts('Math 11/5\nEnglish tomorrow 14:30\nPhysics at 14:30', day);
+    expect(tasks[0].dueTimeKnown, isFalse);
+    expect(tasks[0].toJson()['due'], '2026-11-05');
+    expect(tasks[1].due, DateTime(2026, 11, 3, 14, 30));
+    expect(tasks[1].dueTimeKnown, isTrue);
+    expect(tasks[2].due, isNull);
+  });
 }

@@ -17,16 +17,26 @@ class PlanBlock {
 }
 
 class EveningPlan {
-  EveningPlan(this.blocks, this.unscheduledMinutes);
+  EveningPlan(List<PlanBlock> blocks, Map<String, int> unscheduledMinutes,
+      {List<String> needsEstimates = const []})
+      : blocks = List.unmodifiable(blocks),
+        unscheduledMinutes = Map.unmodifiable(unscheduledMinutes),
+        needsEstimates = List.unmodifiable(needsEstimates);
   final List<PlanBlock> blocks;
   final Map<String, int> unscheduledMinutes;
+  final List<String> needsEstimates;
 }
 
 /// Deterministic, inspectable prioritization. Never extends the evening past 21:00.
 class Planner {
   double score(StudyTask t, DateTime day, Set<String> tomorrowSubjects) {
-    final days = dayOnly(t.due).difference(dayOnly(day)).inDays;
-    return (days < 0
+    final due = t.due;
+    // UTC calendar midnights avoid DST turning tomorrow into zero elapsed days.
+    final days = due == null ? null : DateTime.utc(due.year, due.month, due.day)
+        .difference(DateTime.utc(day.year, day.month, day.day)).inDays;
+    return (days == null
+            ? 0
+            : days < 0
             ? 150
             : days == 0
             ? 120
@@ -45,29 +55,33 @@ class Planner {
     DateTime day, {
     DateTime? from,
     Set<String> tomorrowSubjects = const {},
+    List<String> order = const [],
+    Map<String, List<String>> dependencies = const {},
+    Map<String, String> reasons = const {},
   }) {
     final start = DateTime(day.year, day.month, day.day, 16);
     final end = DateTime(day.year, day.month, day.day, 21);
     var cursor = from != null && from.isAfter(start) ? from : start;
     if (cursor.isAfter(end)) cursor = end;
-    final eligible =
-        tasks
-            .where(
-              (t) =>
-                  !t.done &&
-                  t.remaining > 0 &&
-                  (t.deferredUntil == null ||
-                      !dayOnly(t.deferredUntil!).isAfter(dayOnly(day))),
-            )
-            .toList()
-          ..sort((a, b) {
-            final c = score(
-              b,
-              day,
-              tomorrowSubjects,
-            ).compareTo(score(a, day, tomorrowSubjects));
-            return c != 0 ? c : a.id.compareTo(b.id);
-          });
+    final active = tasks.where((t) => !t.done &&
+        (t.deferredUntil == null ||
+          !dayOnly(t.deferredUntil!).isAfter(dayOnly(day)))).toList();
+    final needsEstimates = active.where((t) => t.remainingSeconds == 0)
+        .map((t) => t.id).toList();
+    final rank = <String, int>{};
+    for (final id in order) {
+      rank.putIfAbsent(id, () => rank.length);
+    }
+    final eligible = active.where((t) => t.remainingSeconds > 0).toList()
+      ..sort((a, b) {
+        final advice = (rank[a.id] ?? rank.length)
+            .compareTo(rank[b.id] ?? rank.length);
+        if (advice != 0) return advice;
+        final priority = score(b, day, tomorrowSubjects)
+            .compareTo(score(a, day, tomorrowSubjects));
+        return priority != 0 ? priority : a.id.compareTo(b.id);
+      });
+    final byId = {for (final task in tasks) task.id: task};
     final remaining = {for (final t in eligible) t.id: t.remaining};
     final blocks = <PlanBlock>[];
     final fixed = [
@@ -102,9 +116,13 @@ class Planner {
         orElse: () => PlanBlock(end, end, ''),
       );
       final available = nextFixed.start.difference(cursor).inMinutes;
-      if (available <= 0) break;
-      final pending = eligible.where((t) => remaining[t.id]! > 0);
-      if (pending.isEmpty) {
+      final pending = eligible.where((t) => remaining[t.id]! > 0 &&
+          (dependencies[t.id] ?? const <String>[]).every((id) =>
+            byId[id]?.done == true ||
+            (remaining.containsKey(id) && remaining[id] == 0)));
+      // Unknown, deferred, exhausted, or cyclic prerequisites remain blocked;
+      // advice never promotes them into an eligible task.
+      if (available <= 0 || pending.isEmpty) {
         blocks.add(
           PlanBlock(
             cursor,
@@ -146,7 +164,7 @@ class Planner {
           task.title,
           taskId: task.id,
           part: parts[task.id]!,
-          subtitle: '${task.subject} · ${kindName(task.kind)}',
+          subtitle: reasons[task.id] ?? '${task.subject} · ${kindName(task.kind)}',
         ),
       );
       remaining[task.id] = remaining[task.id]! - length;
@@ -156,6 +174,7 @@ class Planner {
     return EveningPlan(
       blocks,
       Map.fromEntries(remaining.entries.where((e) => e.value > 0)),
+      needsEstimates: needsEstimates,
     );
   }
 }

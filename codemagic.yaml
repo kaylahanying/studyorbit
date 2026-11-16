@@ -34,10 +34,15 @@ workflows:
       - name: Build signed IPA
         script: |
           set -e
+          case "${STUDYORBIT_API_ORIGIN:-}" in
+            https://*) ;;
+            *) echo "Set STUDYORBIT_API_ORIGIN to the HTTPS hosted AI origin before building a pilot IPA."; exit 1 ;;
+          esac
           LATEST_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APP_ID")
           BUILD_NUMBER=$((LATEST_BUILD_NUMBER + 1))
           flutter build ipa --release \
             --build-number="$BUILD_NUMBER" \
+            --dart-define=STUDYORBIT_API_ORIGIN="$STUDYORBIT_API_ORIGIN" \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa

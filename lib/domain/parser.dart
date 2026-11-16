@@ -27,24 +27,41 @@ List<StudyTask> parseDrafts(String input, DateTime now) {
       r'(\d+)\s*(?:分钟|mins?\b|minutes?\b)',
       caseSensitive: false,
     ).firstMatch(line);
-    var due = dayOnly(now).add(const Duration(days: 1));
+    DateTime? due;
     if (line.contains('今天') || RegExp(r'\btoday\b').hasMatch(lower)) {
       due = dayOnly(now);
-    }
-    if (lower.contains('tomorrow')) {
-      due = dayOnly(now).add(const Duration(days: 1));
-    }
-    if (line.contains('后天') ||
+    } else if (line.contains('后天') ||
         RegExp(r'\b(?:the )?day after tomorrow\b').hasMatch(lower)) {
-      due = dayOnly(now).add(const Duration(days: 2));
+      due = calendarDayAfter(now, 2);
+    } else if (line.contains('明天') || RegExp(r'\btomorrow\b').hasMatch(lower)) {
+      due = calendarDayAfter(now);
     }
-    final date = RegExp(r'(\d{1,2})[月/\-](\d{1,2})日?').firstMatch(line);
-    if (date != null) {
-      final m = int.parse(date[1]!);
-      final d = int.parse(date[2]!);
-      if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-        final candidate = DateTime(now.year, m, d);
-        if (candidate.month == m && candidate.day == d) due = candidate;
+    // A question range such as 1-8 is not a date. Hyphens are accepted only
+    // inside a complete ISO date; slash and Chinese dates remain supported.
+    final iso = RegExp(r'\b(\d{4})-(\d{1,2})-(\d{1,2})\b').firstMatch(line);
+    final date = RegExp(r'(?<![\d/])(\d{1,2})(?:月|/)(\d{1,2})日?(?![\d/])')
+        .firstMatch(line);
+    if (iso != null || date != null) {
+      final year = iso == null ? now.year : int.parse(iso[1]!);
+      final month = int.parse(iso == null ? date![1]! : iso[2]!);
+      final day = int.parse(iso == null ? date![2]! : iso[3]!);
+      final candidate = DateTime(year, month, day);
+      if (year >= 1900 && year <= 2200 &&
+          candidate.month == month && candidate.day == day) {
+        due = candidate;
+      }
+    }
+    var dueTimeKnown = false;
+    final time = RegExp(r'\b(\d{1,2}):(\d{2})\s*(am|pm)?\b',
+        caseSensitive: false).firstMatch(line);
+    if (due != null && time != null) {
+      var hour = int.parse(time[1]!);
+      final minute = int.parse(time[2]!);
+      final period = time[3]?.toLowerCase();
+      if (minute <= 59 && (period == null ? hour <= 23 : hour >= 1 && hour <= 12)) {
+        if (period != null) hour = hour % 12 + (period == 'pm' ? 12 : 0);
+        due = DateTime(due.year, due.month, due.day, hour, minute);
+        dueTimeKnown = true;
       }
     }
     final kind =
@@ -68,6 +85,8 @@ List<StudyTask> parseDrafts(String input, DateTime now) {
       title: line.trim(),
       subject: subject,
       due: due,
+      dueTimeKnown: dueTimeKnown,
+      sourceQuote: line.trim(),
       minutes: minutes,
       kind: kind,
       steps: minutes >= 60

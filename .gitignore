@@ -46,3 +46,19 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Operator credentials, signing material and private application data
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.p12
+*.p8
+*.mobileprovision
+*.keystore
+*.jks
+*.studybackup
+*.studyorbit

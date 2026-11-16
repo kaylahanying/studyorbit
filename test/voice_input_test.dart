@@ -4,28 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:studyorbit/app.dart';
+import 'package:studyorbit/services/study_controller.dart';
+
+import 'ui_test_support.dart';
 
 const speech = MethodChannel('si.studyorbit/offline_speech');
 
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(() {
-    binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      const MethodChannel('si.studyorbit/task_understanding'),
-      (_) async => {
-        'available': false,
-        'message': 'Basic splitting is available.',
-      },
-    );
-  });
+  late FakeHostedGateway gateway;
+  setUp(() => gateway = FakeHostedGateway());
 
   tearDown(() {
     binding.defaultBinaryMessenger.setMockMethodCallHandler(speech, null);
-    binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      const MethodChannel('si.studyorbit/task_understanding'),
-      null,
-    );
   });
 
   Future<void> openVoice(WidgetTester tester) async {
@@ -33,8 +25,10 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    final store = StudyController(repository: MemoryStudyRepository(), gateway: gateway);
+    await store.load();
     await tester.pumpWidget(
-      const MaterialApp(home: CapturePage(mode: 2, deletePhotos: true)),
+      MaterialApp(home: CapturePage(mode: 2, deletePhotos: true, store: store)),
     );
     await tester.ensureVisible(find.text('Start voice input'));
   }
@@ -91,6 +85,18 @@ void main() {
       'Existing task\nMath review tomorrow, 30 minutes',
     );
     expect(find.text('Start voice input'), findsOneWidget);
+    expect(gateway.requests, isEmpty);
+    expect(gateway.statusCalls, 0);
+    await tester.ensureVisible(find.text('Extract tasks with AI'));
+    await tester.tap(find.text('Extract tasks with AI'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Share text for AI task extraction?'), findsOneWidget);
+    expect(find.textContaining('Provider: Test provider'), findsOneWidget);
+    expect(gateway.requests, isEmpty);
+    await tester.tap(find.text('Not now'));
+    await tester.pumpAndSettle();
+    expect(gateway.requests, isEmpty);
     expect(tester.takeException(), isNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
