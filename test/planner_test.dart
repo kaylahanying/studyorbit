@@ -14,6 +14,46 @@ void main() {
         minutes: minutes,
         weak: weak,
       );
+  test('Projected evenings carry only the remaining work and respect staged starts', () {
+    final today = DateTime(2026, 11, 2, 20, 30);
+    final tomorrow = DateTime(2026, 11, 3);
+    final later = DateTime(2026, 11, 4);
+    final homework = StudyTask(
+      id: 'homework',
+      title: 'Homework',
+      subject: 'Math',
+      due: today,
+      minutes: 40,
+    );
+    final prep = StudyTask(
+      id: 'prep',
+      title: 'Exam practice',
+      subject: 'Physics',
+      due: later,
+      minutes: 20,
+      deferredUntil: later,
+    );
+    final tasks = [homework, prep];
+    final projector = Planner();
+    final tonight = projector.project(tasks, today, now: today);
+    expect(tonight.unscheduledMinutes, {'homework': 30});
+    final next = projector.project(tasks, tomorrow, now: today);
+    expect(
+      next.blocks
+          .where((block) => block.taskId != null)
+          .map((block) => block.minutes),
+      [30],
+    );
+    final staged = projector.project(tasks, later, now: today);
+    expect(
+      staged.blocks
+          .where((block) => block.taskId != null)
+          .map((block) => block.taskId),
+      ['prep'],
+    );
+    expect(homework.remaining, 40);
+  });
+
   test('Evening stays contiguous in bounds, reserves dinner and leisure, and accounts for overflow', () {
     final tasks = [task('a', 600), task('b', 200)];
     final plan = Planner().generate(tasks, day);

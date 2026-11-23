@@ -38,6 +38,18 @@ List<StudyTask> parseDrafts(String input, DateTime now) {
         RegExp(r'\b(?:the )?day after tomorrow\b').hasMatch(lower)) {
       due = dayOnly(now).add(const Duration(days: 2));
     }
+    final offset = RegExp(r'\bin (\d{1,3})\s*(days?|weeks?)\b')
+        .firstMatch(lower);
+    if (offset != null) {
+      final count = int.parse(offset[1]!);
+      final days = offset[2]!.startsWith('week') ? count * 7 : count;
+      due = DateTime(now.year, now.month, now.day + days);
+    }
+    final needsPractice =
+        subject != 'Other' &&
+        RegExp(
+          r'\b(?:more (?:study )?time|extra (?:time|practice)|needs? (?:more )?practice)\b',
+        ).hasMatch(lower);
     final date = RegExp(r'(\d{1,2})[月/\-](\d{1,2})日?').firstMatch(line);
     if (date != null) {
       final m = int.parse(date[1]!);
@@ -69,7 +81,8 @@ List<StudyTask> parseDrafts(String input, DateTime now) {
       subject: subject,
       due: due,
       minutes: minutes,
-      kind: kind,
+      kind: needsPractice && kind == TaskKind.homework ? TaskKind.review : kind,
+      weak: needsPractice,
       steps: minutes >= 60
           ? [
               'Gather instructions and materials',

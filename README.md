@@ -3,41 +3,24 @@
 Internal codename: **StudyOrbit**. Package names, bundle identifiers, storage keys,
 and repository names retain `studyorbit`.
 
-## On-device task understanding
+## On-device study planning
 
-On supported iPhones running iOS 26 or later, Apple Intelligence uses the native
-Foundation Models framework to interpret a paragraph and draft separate study
-tasks, including subjects, due dates, estimated durations, and steps. Large
-assignments can be broken into stages. Completed voice transcription automatically begins task drafting when the model
-is available. Photo OCR opens the academic photo wizard described below. Typed input
-uses **Create task drafts**. Review and edit drafts before confirming them.
+Type a study update or dictate it with offline speech recognition. On supported
+iPhones running iOS 26 or later, Apple Intelligence interprets the update with open
+tasks, subjects marked for extra practice, and recent study activity. It can draft
+homework, stage preparation for upcoming quizzes and tests, and propose changes to
+saved tasks. Review the dates and estimated time before confirming.
 
-Apple Intelligence must be enabled and its model downloaded. Availability is
-checked on the device; no API key, server, or cloud inference is used. Other
-devices retain explicitly labeled basic splitting (one task per line). Model
-failure preserves the original input and offers a manual basic fallback.
-The minimum deployment target stays iOS 15.5; Foundation Models is weak-linked
-and runtime-gated behind iOS 26 availability. Inputs are limited to 3,000
-characters and model output to 15 tasks per request. Dates and durations are
-validated before any drafts are displayed; model estimates still need review.
+The scheduler updates the rest of today’s evening and projects upcoming evenings
+in Calendar. Unfinished work carries over, and staged preparation becomes eligible
+on its start date. Actual time and completion history remain attached to updated
+tasks. Photo capture is currently hidden.
 
-## Academic photo wizard
-
-On supported iPhones, after taking or choosing a photo, on-device OCR extracts
-readable text and Apple Intelligence classifies its subject, topic and material
-(notes, reading, problems or exam). The wizard recommends a study guide for
-notes/reading, step-by-step solving for problems, or practice for exams. Students
-see the detected subject and topic, with the recommended goal shown first.
-They can choose any of the three goals and generate a guide before optionally
-creating reviewable planner tasks. Editing recognized text requires reclassification.
-Nonacademic text receives a friendly request to take an academic photo and a
-retake button. Unclear text prompts a clearer capture or added context. No task is automatically saved.
-
-This analyzes **recognized text**, not image pixels: diagrams without readable
-text and OCR errors need a clearer capture or typed context. The 3,000-character
-input limit applies. Photos and text stay on device. Android, web and iPhones
-without Apple Intelligence do not support AI photo guides; students can remove
-the photo and enter tasks manually. Generated explanations need checking.
+Apple Intelligence must be enabled and its model downloaded. All processing stays
+on device. Other devices retain basic splitting with one task per line, and users
+can choose that fallback if model inference fails. Foundation Models is weak-linked
+and runtime-gated behind iOS 26. The minimum deployment target stays iOS 15.5.
+Inputs are limited to 3,000 characters and 15 proposed tasks per request.
 
 面向高中生的 Flutter 学习计划 MVP。英文界面，支持 Android、iOS，以及用于演示文字录入流程的 Web 版本。由用户提供的《StudyOrbit 手机 App 商业计划（精简版）》实现。
 

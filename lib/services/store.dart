@@ -79,6 +79,29 @@ class StudyStore extends ChangeNotifier {
     );
   }
 
+  Future<void> applyDrafts(List<StudyTask> drafts) async {
+    if (error != null) throw StateError(error!);
+    final current = {for (final task in tasks) task.id: task};
+    var added = 0;
+    var updated = 0;
+    for (final draft in drafts) {
+      if (current.containsKey(draft.id)) {
+        updated++;
+      } else {
+        added++;
+      }
+      current[draft.id] = draft;
+    }
+    tasks = current.values.toList();
+    await save(
+      added == 0
+          ? 'Updated $updated study tasks'
+          : updated == 0
+          ? 'Added $added ${added == 1 ? 'task' : 'tasks'}'
+          : 'Added $added and updated $updated study tasks',
+    );
+  }
+
   Future<void> toggle(StudyTask task) async {
     task.done = !task.done;
     await save('${task.done ? 'Completed' : 'Reopened'}: ${task.title}');

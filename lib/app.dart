@@ -139,12 +139,18 @@ class _HomeState extends State<Home> {
   Future<void> capture([int mode = 0]) async {
     final result = await Navigator.of(context).push<List<StudyTask>>(
       MaterialPageRoute(
-        builder: (_) =>
-            CapturePage(mode: mode, deletePhotos: store.deletePhotos),
+        builder: (_) => CapturePage(
+          mode: mode,
+          deletePhotos: store.deletePhotos,
+          savedTasks: List.of(store.tasks),
+          history: List.of(store.history),
+        ),
       ),
     );
     if (result != null && result.isNotEmpty) {
-      await action(() => store.add(result));
+      if (!mounted) return;
+      setState(() => planFrom = DateTime.now());
+      await action(() => store.applyDrafts(result));
     }
   }
 
@@ -396,12 +402,17 @@ class _HomeState extends State<Home> {
       ],
     ),
   );
+  DateTime _scheduleStart(DateTime now) {
+    final from = planFrom;
+    return from != null && dayOnly(from) == dayOnly(now) ? from : now;
+  }
+
   Widget _today() {
     final now = DateTime.now();
     final plan = planner.generate(
       store.tasks,
       now,
-      from: planFrom,
+      from: _scheduleStart(now),
       tomorrowSubjects: store.tomorrowSubjects,
     );
     final pending = store.tasks.where((t) => !t.done).length;
@@ -479,18 +490,9 @@ class _HomeState extends State<Home> {
           children: [
             Expanded(
               child: _captureCard(
-                Icons.camera_alt_outlined,
-                'Photo',
-                'Scan homework and corrections',
-                1,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _captureCard(
                 Icons.mic_none_rounded,
                 'Voice',
-                'Speak your study tasks',
+                'Say what’s due and what needs practice',
                 2,
               ),
             ),
@@ -499,7 +501,7 @@ class _HomeState extends State<Home> {
               child: _captureCard(
                 Icons.edit_note_rounded,
                 'Text',
-                'Write down what you need to do',
+                'Enter homework, tests, and study priorities',
                 0,
               ),
             ),
@@ -691,7 +693,7 @@ class _HomeState extends State<Home> {
             borderRadius: BorderRadius.circular(14),
           ),
           child: Text(
-            '${plan.unscheduledMinutes.values.fold<int>(0, (a, b) => a + b)} minutes do not fit tonight. Shorten tasks, defer them, or continue tomorrow.',
+            '${plan.unscheduledMinutes.values.fold<int>(0, (a, b) => a + b)} minutes carry over to future evenings. See Calendar for the projected plan.',
             style: const TextStyle(fontSize: 12, color: Color(0xFF936128)),
           ),
         ),
@@ -730,7 +732,7 @@ class _HomeState extends State<Home> {
         ),
     ],
   );
-  Widget _block(PlanBlock b) {
+  Widget _block(PlanBlock b, {bool canFocus = true}) {
     final task = b.taskId == null
         ? null
         : store.tasks.where((t) => t.id == b.taskId).firstOrNull;
@@ -806,7 +808,7 @@ class _HomeState extends State<Home> {
                       ],
                     ),
                   ),
-                  if (task != null)
+                  if (task != null && canFocus)
                     IconButton(
                       tooltip: 'Focus',
                       onPressed: () => focus(task, b.minutes),
@@ -1098,6 +1100,18 @@ class _HomeState extends State<Home> {
     final first = DateTime(selectedDay.year, selectedDay.month);
     final days = DateTime(selectedDay.year, selectedDay.month + 1, 0).day;
     final offset = first.weekday - 1;
+    final now = DateTime.now();
+    final today = dayOnly(now);
+    final isPast = selectedDay.isBefore(today);
+    final blocks = planner
+        .project(
+          store.tasks,
+          selectedDay,
+          now: _scheduleStart(now),
+          tomorrowSubjects: store.tomorrowSubjects,
+        )
+        .blocks
+        .where((block) => block.taskId != null);
     final daily = store.tasks
         .where((t) => dayOnly(t.due) == selectedDay)
         .toList();
@@ -1237,6 +1251,21 @@ class _HomeState extends State<Home> {
           ),
         ),
         const SizedBox(height: 22),
+        if (!isPast) ...[
+          Text(
+            '${selectedDay.month}/${selectedDay.day} · Study schedule',
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+          ),
+          const SizedBox(height: 14),
+          if (blocks.isEmpty)
+            _empty(
+              'No study blocks planned',
+              'Study time is projected from your remaining work.',
+            ),
+          for (final block in blocks)
+            _block(block, canFocus: selectedDay == today),
+          const SizedBox(height: 16),
+        ],
         Text(
           '${selectedDay.month}/${selectedDay.day} · Tasks due',
           style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
@@ -1271,17 +1300,6 @@ class _HomeState extends State<Home> {
               subtitle: Text(
                 'Tasks and records stay on this device and are not uploaded.',
               ),
-            ),
-            SwitchListTile(
-              title: const Text('Delete temporary photos after scanning'),
-              subtitle: const Text(
-                'Only app copies are deleted. Your original photos stay safe.',
-              ),
-              value: store.deletePhotos,
-              onChanged: (v) => action(() async {
-                store.deletePhotos = v;
-                await store.save();
-              }),
             ),
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
@@ -1502,15 +1520,23 @@ class CapturePage extends StatefulWidget {
     super.key,
     required this.mode,
     required this.deletePhotos,
+    this.showPhotoCapture = false,
+    this.savedTasks = const [],
+    this.history = const [],
   });
   final int mode;
   final bool deletePhotos;
+  final bool showPhotoCapture;
+  final List<StudyTask> savedTasks;
+  final List<HistoryEntry> history;
   @override
   State<CapturePage> createState() => _CapturePageState();
 }
 
 class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
-  late int mode = widget.mode;
+  late int mode = widget.mode == 1 && !widget.showPhotoCapture
+      ? 0
+      : widget.mode;
   final input = TextEditingController();
   final captureScroll = ScrollController();
   final photoWizard = GlobalKey();
@@ -1604,7 +1630,12 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
     try {
       final now = DateTime.now();
       final result = useAI
-          ? await taskUnderstanding.understand(text, now)
+          ? await taskUnderstanding.understand(
+              text,
+              now,
+              savedTasks: widget.savedTasks,
+              history: widget.history,
+            )
           : parseDrafts(text, now);
       if (mounted) {
         setState(() {
@@ -1985,9 +2016,9 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                 const SizedBox(height: 12),
                 Text(
                   drafts == null
-                      ? 'Add homework, quiz corrections, exams, and preparation together.'
+                      ? 'Add today’s assignments, upcoming quizzes and tests, and any subjects that need more study time.'
                       : draftsUseAI
-                      ? 'Apple Intelligence split your input into task drafts. Review the assignments, due dates, estimated time, and steps before adding them.'
+                      ? 'Apple Intelligence used your input and recent study history. Review the drafts before updating your schedule.'
                       : 'Basic drafts use one task per line. Check each subject, date, and duration. Unrecognized dates default to tomorrow and durations to 30 minutes.',
                   style: const TextStyle(color: muted, fontSize: 13),
                 ),
@@ -2041,18 +2072,19 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: 14),
                   SegmentedButton<int>(
-                    segments: const [
-                      ButtonSegment(
+                    segments: [
+                      const ButtonSegment(
                         value: 0,
                         icon: Icon(Icons.edit_note),
                         label: Text('Text'),
                       ),
-                      ButtonSegment(
-                        value: 1,
-                        icon: Icon(Icons.camera_alt_outlined),
-                        label: Text('Photo'),
-                      ),
-                      ButtonSegment(
+                      if (widget.showPhotoCapture)
+                        const ButtonSegment(
+                          value: 1,
+                          icon: Icon(Icons.camera_alt_outlined),
+                          label: Text('Photo'),
+                        ),
+                      const ButtonSegment(
                         value: 2,
                         icon: Icon(Icons.mic_none),
                         label: Text('Voice'),
@@ -2268,18 +2300,18 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                     minLines: 7,
                     maxLines: 14,
                     decoration: InputDecoration(
-                      labelText: 'Study tasks / Recognized text',
+                      labelText: 'Study update',
                       alignLabelWithHint: true,
                       hintText: taskModel?.available == true
-                          ? 'For example: I have math exercises due tomorrow, a physics test on Friday, and an English essay to research and write this week.'
+                          ? 'For example: Math exercises are due today. I have a physics test in two weeks and need to spend more time on physics.'
                           : 'One task per line, for example:\nMath exercises due tomorrow, 30 minutes\nPhysics review today, 45 minutes',
                     ),
                   ),
                   const SizedBox(height: 14),
                   Text(
                     taskModel?.available == true
-                        ? 'Describe everything in one go. Apple Intelligence separates assignments and breaks down larger tasks. Voice input is drafted automatically. Photos open a guided choice before drafting.'
-                        : 'Basic splitting: use one task per line, today / tomorrow / the day after tomorrow, month/day, and minutes. Apple Intelligence is needed to understand a paragraph automatically.',
+                        ? 'You can describe everything in one go. When you finish speaking, Apple Intelligence drafts changes for you to review.'
+                        : 'Basic splitting: use one task per line, today / tomorrow / the day after tomorrow, in 3 days / in 2 weeks, month/day, and minutes. Apple Intelligence is needed to understand a paragraph automatically.',
                     style: const TextStyle(
                       color: muted,
                       fontSize: 11,
@@ -2310,7 +2342,17 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                         ),
                         title: Text(drafts![i].title),
                         subtitle: Text(
-                          '${drafts![i].subject} · ${kindName(drafts![i].kind)}\nDue ${drafts![i].due.month}/${drafts![i].due.day} · ${drafts![i].minutes} min',
+                          [
+                            if (widget.savedTasks.any(
+                              (task) => task.id == drafts![i].id,
+                            ))
+                              'Updates an existing task',
+                            '${drafts![i].subject} · ${kindName(drafts![i].kind)}'
+                                '${drafts![i].weak ? ' · Needs practice' : ''}',
+                            if (drafts![i].deferredUntil case final start?)
+                              'Starts ${start.month}/${start.day}',
+                            'Due ${drafts![i].due.month}/${drafts![i].due.day} · ${drafts![i].remaining} min remaining',
+                          ].join('\n'),
                           style: const TextStyle(fontSize: 12, height: 1.8),
                         ),
                         onTap: () => editDraft(i),
@@ -2376,6 +2418,12 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                     label: Text(
                       drafts == null
                           ? 'Create task drafts'
+                          : drafts!.any(
+                              (draft) => widget.savedTasks.any(
+                                (task) => task.id == draft.id,
+                              ),
+                            )
+                          ? 'Confirm and update schedule'
                           : 'Confirm and add ${drafts!.length} ${drafts!.length == 1 ? 'task' : 'tasks'}',
                     ),
                   ),
@@ -2399,7 +2447,10 @@ class TaskEditor extends StatefulWidget {
 class _TaskEditorState extends State<TaskEditor> {
   final form = GlobalKey<FormState>();
   late final title = TextEditingController(text: widget.task.title);
-  late final minutes = TextEditingController(text: '${widget.task.minutes}');
+  late final minutes = TextEditingController(
+    text:
+        '${widget.task.spentSeconds == 0 ? widget.task.minutes : widget.task.remaining}',
+  );
   late final steps = TextEditingController(text: widget.task.steps.join('\n'));
   late final task = widget.task;
   @override
@@ -2479,7 +2530,14 @@ class _TaskEditorState extends State<TaskEditor> {
                         firstDate: DateTime(2020),
                         lastDate: DateTime(2100),
                       );
-                      if (d != null) setState(() => task.due = d);
+                      if (d == null || !mounted) return;
+                      setState(() {
+                        task.due = d;
+                        final start = task.deferredUntil;
+                        if (start != null && start.isAfter(d)) {
+                          task.deferredUntil = d;
+                        }
+                      });
                     },
                     icon: const Icon(Icons.calendar_today, size: 15),
                     label: Text(
@@ -2492,19 +2550,40 @@ class _TaskEditorState extends State<TaskEditor> {
                   child: TextFormField(
                     controller: minutes,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Estimated minutes',
+                    decoration: InputDecoration(
+                      labelText: task.spentSeconds == 0
+                          ? 'Estimated minutes'
+                          : 'Minutes remaining',
                     ),
                     validator: (s) {
                       final n = int.tryParse(s ?? '');
-                      return n == null || n < 5 || n > 600
-                          ? 'Enter 5–600 minutes'
+                      final minimum = task.spentSeconds == 0 ? 5 : 0;
+                      return n == null || n < minimum || n > 600
+                          ? 'Enter $minimum–600 minutes'
                           : null;
                     },
                   ),
                 ),
               ],
             ),
+            if (task.deferredUntil case final start?) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.event_outlined, size: 15),
+                label: Text('Starts ${start.month}/${start.day}'),
+                onPressed: () async {
+                  final date = await showDatePicker(
+                    context: context,
+                    initialDate: start.isAfter(task.due) ? task.due : start,
+                    firstDate: DateTime(2020),
+                    lastDate: task.due,
+                  );
+                  if (date != null && mounted) {
+                    setState(() => task.deferredUntil = date);
+                  }
+                },
+              ),
+            ],
             const SizedBox(height: 16),
             Text(
               'Difficulty: ${['Easy', 'Moderate', 'Challenging'][task.difficulty - 1]}',
@@ -2539,7 +2618,8 @@ class _TaskEditorState extends State<TaskEditor> {
                 onPressed: () {
                   if (form.currentState!.validate()) {
                     task.title = title.text.trim();
-                    task.minutes = int.parse(minutes.text);
+                    task.minutes =
+                        int.parse(minutes.text) + task.spentSeconds ~/ 60;
                     task.steps = steps.text
                         .split('\n')
                         .map((s) => s.trim())

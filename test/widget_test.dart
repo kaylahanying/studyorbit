@@ -61,7 +61,13 @@ void main() {
       });
 
       await tester.pumpWidget(
-        const MaterialApp(home: CapturePage(mode: 1, deletePhotos: false)),
+        const MaterialApp(
+          home: CapturePage(
+            mode: 1,
+            deletePhotos: false,
+            showPhotoCapture: true,
+          ),
+        ),
       );
       await tester.pumpAndSettle();
       final camera = find.text('Take a photo');
@@ -112,9 +118,11 @@ void main() {
       await store.load();
       await tester.pumpWidget(StudyOrbitApp(store: store));
       expect(find.text('Study Executive Assistant'), findsOneWidget);
+      expect(find.text('Photo'), findsNothing);
       expect(tester.takeException(), isNull);
       await tester.tap(find.text('Add study tasks'));
       await tester.pumpAndSettle();
+      expect(find.text('Photo'), findsNothing);
       await tester.enterText(
         find.byType(TextField),
         'Math exercises due tomorrow, 30 minutes',
