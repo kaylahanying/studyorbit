@@ -40,63 +40,159 @@ void main() {
     );
   });
 
-  test('Photo classification preserves academic, unrelated and unclear results', () async {
-    for (final category in ['academic', 'nonAcademic', 'unclear']) {
-      binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        TaskUnderstanding.channel, (call) async {
-          expect(call.method, 'classifyPhoto');
-          expect(call.arguments['text'], 'Solve x + 2 = 5');
-          return {'category': category, 'subject': 'Math',
-            'topic': 'Linear equations', 'contentType': 'problems'};
-        },
-      );
-      final result = await service.photoRequest('classifyPhoto', 'Solve x + 2 = 5');
-      expect(result['category'], category);
-      expect(result['contentType'], 'problems');
-    }
-  });
+  test(
+    'Photo classification preserves academic, unrelated and unclear results',
+    () async {
+      for (final category in ['academic', 'nonAcademic', 'unclear']) {
+        binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          TaskUnderstanding.channel,
+          (call) async {
+            expect(call.method, 'classifyPhoto');
+            expect(call.arguments['text'], 'Solve x + 2 = 5');
+            return {
+              'category': category,
+              'subject': 'Math',
+              'topic': 'Linear equations',
+              'contentType': 'problems',
+            };
+          },
+        );
+        final result = await service.photoRequest(
+          'classifyPhoto',
+          'Solve x + 2 = 5',
+        );
+        expect(result['category'], category);
+        expect(result['contentType'], 'problems');
+      }
+    },
+  );
 
   test('Photo guide sends the chosen learning goal and original OCR', () async {
     for (final goal in ['study', 'practice', 'solve']) {
       binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        TaskUnderstanding.channel, (call) async {
+        TaskUnderstanding.channel,
+        (call) async {
           expect(call.method, 'photoGuide');
           expect(call.arguments['goal'], goal);
           expect(call.arguments['text'], 'Solve x + 2 = 5');
-          return {'title': 'Linear equations', 'body': 'Subtract 2 from both sides.'};
+          return {
+            'title': 'Linear equations',
+            'body': 'Subtract 2 from both sides.',
+          };
         },
       );
-      final result = await service.photoRequest('photoGuide', 'Solve x + 2 = 5', goal: goal);
+      final result = await service.photoRequest(
+        'photoGuide',
+        'Solve x + 2 = 5',
+        goal: goal,
+      );
       expect(result['body'], 'Subtract 2 from both sides.');
     }
   });
 
-  test('Rejects malformed photo classifications and incomplete guides', () async {
-    for (final value in [
-      {'category': 'invented', 'subject': 'Math', 'topic': 'Equations', 'contentType': 'problems'},
-      {'category': 'academic', 'subject': 'Math', 'topic': '', 'contentType': 'problems'},
-      {'category': 'academic', 'subject': 'Math', 'topic': 'Equations', 'contentType': 'invented'},
-    ]) {
+  test(
+    'Rejects malformed photo classifications and incomplete guides',
+    () async {
+      for (final value in [
+        {
+          'category': 'invented',
+          'subject': 'Math',
+          'topic': 'Equations',
+          'contentType': 'problems',
+        },
+        {
+          'category': 'academic',
+          'subject': 'Math',
+          'topic': '',
+          'contentType': 'problems',
+        },
+        {
+          'category': 'academic',
+          'subject': 'Math',
+          'topic': 'Equations',
+          'contentType': 'invented',
+        },
+      ]) {
+        binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          TaskUnderstanding.channel,
+          (_) async => value,
+        );
+        await expectLater(
+          service.photoRequest('classifyPhoto', 'x + 2 = 5'),
+          throwsFormatException,
+        );
+      }
       binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        TaskUnderstanding.channel, (_) async => value,
+        TaskUnderstanding.channel,
+        (_) async => {'title': 'Guide', 'body': ''},
       );
-      await expectLater(service.photoRequest('classifyPhoto', 'x + 2 = 5'), throwsFormatException);
-    }
-    binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      TaskUnderstanding.channel, (_) async => {'title': 'Guide', 'body': ''},
-    );
-    await expectLater(service.photoRequest('photoGuide', 'x + 2 = 5', goal: 'solve'), throwsFormatException);
-  });
+      await expectLater(
+        service.photoRequest('photoGuide', 'x + 2 = 5', goal: 'solve'),
+        throwsFormatException,
+      );
+    },
+  );
 
-  test('Rejects empty and oversized photo text before native inference', () async {
-    var called = false;
-    binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      TaskUnderstanding.channel, (_) async { called = true; return null; },
+  test(
+    'Rejects empty and oversized photo text before native inference',
+    () async {
+      var called = false;
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        TaskUnderstanding.channel,
+        (_) async {
+          called = true;
+          return null;
+        },
+      );
+      for (final text in [' ', 'a' * 3001]) {
+        await expectLater(
+          service.photoRequest('classifyPhoto', text),
+          throwsFormatException,
+        );
+      }
+      expect(called, isFalse);
+    },
+  );
+
+  test('Uses existing tasks and history to draft a dated update without losing progress', () async {
+    final saved = StudyTask(
+      id: 'physics-test',
+      title: 'Practice forces',
+      subject: 'Physics',
+      due: now,
+      minutes: 40,
+      spentSeconds: 600,
     );
-    for (final text in [' ', 'a' * 3001]) {
-      await expectLater(service.photoRequest('classifyPhoto', text), throwsFormatException);
-    }
-    expect(called, isFalse);
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      TaskUnderstanding.channel,
+      (call) async {
+        expect(call.arguments['context'], contains('Practice forces'));
+        expect(
+          call.arguments['context'],
+          contains('Completed: Force diagrams'),
+        );
+        return [
+          {
+            ...draft('Practice forces', subject: 'Physics', date: '2026-11-16'),
+            'taskReference': 1,
+            'needsPractice': true,
+            'startDate': '2026-11-14',
+          },
+        ];
+      },
+    );
+    final result = await service.understand(
+      'Move the physics test to two weeks from today. I need more physics practice.',
+      now,
+      savedTasks: [saved],
+      history: [HistoryEntry('Completed: Force diagrams', now)],
+    );
+    expect(result.single.id, saved.id);
+    expect(result.single.remaining, 30);
+    expect(result.single.spentSeconds, 600);
+    expect(result.single.weak, isTrue);
+    expect(result.single.deferredUntil, DateTime(2026, 11, 14));
+    expect(saved.due, now);
   });
 
   test('Sends a complete paragraph and local reference date to native understanding', () async {
@@ -208,7 +304,7 @@ void main() {
       }
       expect(find.text('Confirm and add 3 tasks'), findsOneWidget);
       expect(
-        find.textContaining('Apple Intelligence split your input'),
+        find.textContaining('Apple Intelligence used your input'),
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
@@ -283,7 +379,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.textContaining('Apple Intelligence split your input'),
+        find.textContaining('Apple Intelligence used your input'),
         findsNothing,
       );
     },

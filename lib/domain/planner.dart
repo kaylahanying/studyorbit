@@ -25,7 +25,11 @@ class EveningPlan {
 /// Deterministic, inspectable prioritization. Never extends the evening past 21:00.
 class Planner {
   double score(StudyTask t, DateTime day, Set<String> tomorrowSubjects) {
-    final days = dayOnly(t.due).difference(dayOnly(day)).inDays;
+    final days = DateTime.utc(
+      t.due.year,
+      t.due.month,
+      t.due.day,
+    ).difference(DateTime.utc(day.year, day.month, day.day)).inDays;
     return (days < 0
             ? 150
             : days == 0
@@ -40,22 +44,80 @@ class Planner {
         10 / (t.remaining + 1);
   }
 
+  /// Projects each evening using only work left after the preceding evenings.
+  EveningPlan project(
+    List<StudyTask> tasks,
+    DateTime day, {
+    required DateTime now,
+    Set<String> tomorrowSubjects = const {},
+  }) {
+    final today = dayOnly(now);
+    final target = dayOnly(day);
+    if (target.isBefore(today)) return EveningPlan([], {});
+    final remaining = {
+      for (final task in tasks)
+        if (!task.done && task.remaining > 0) task.id: task.remaining,
+    };
+    var date = today;
+    while (date.isBefore(target) && remaining.isNotEmpty) {
+      // Jump over dates before the next task becomes available.
+      final next = tasks
+          .where((task) => remaining.containsKey(task.id))
+          .map((task) => dayOnly(task.deferredUntil ?? date))
+          .reduce((a, b) => a.isBefore(b) ? a : b);
+      if (next.isAfter(date)) {
+        if (next.isAfter(target)) break;
+        date = next;
+        continue;
+      }
+      final plan = generate(
+        tasks,
+        date,
+        from: date == today ? now : null,
+        tomorrowSubjects: date == today ? tomorrowSubjects : const {},
+        remainingMinutes: remaining,
+      );
+      for (final block in plan.blocks) {
+        final id = block.taskId;
+        if (id == null) continue;
+        final left = remaining[id]! - block.minutes;
+        if (left > 0) {
+          remaining[id] = left;
+        } else {
+          remaining.remove(id);
+        }
+      }
+      date = DateTime(date.year, date.month, date.day + 1);
+    }
+    return generate(
+      tasks,
+      target,
+      from: target == today ? now : null,
+      tomorrowSubjects: target == today ? tomorrowSubjects : const {},
+      remainingMinutes: remaining,
+    );
+  }
+
   EveningPlan generate(
     List<StudyTask> tasks,
     DateTime day, {
     DateTime? from,
     Set<String> tomorrowSubjects = const {},
+    Map<String, int>? remainingMinutes,
   }) {
     final start = DateTime(day.year, day.month, day.day, 16);
     final end = DateTime(day.year, day.month, day.day, 21);
     var cursor = from != null && from.isAfter(start) ? from : start;
     if (cursor.isAfter(end)) cursor = end;
+    int minutesLeft(StudyTask task) => remainingMinutes == null
+        ? task.remaining
+        : remainingMinutes[task.id] ?? 0;
     final eligible =
         tasks
             .where(
               (t) =>
                   !t.done &&
-                  t.remaining > 0 &&
+                  minutesLeft(t) > 0 &&
                   (t.deferredUntil == null ||
                       !dayOnly(t.deferredUntil!).isAfter(dayOnly(day))),
             )
@@ -68,7 +130,7 @@ class Planner {
             ).compareTo(score(a, day, tomorrowSubjects));
             return c != 0 ? c : a.id.compareTo(b.id);
           });
-    final remaining = {for (final t in eligible) t.id: t.remaining};
+    final remaining = {for (final t in eligible) t.id: minutesLeft(t)};
     final blocks = <PlanBlock>[];
     final fixed = [
       PlanBlock(
