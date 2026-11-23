@@ -1513,6 +1513,8 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
   late int mode = widget.mode;
   final input = TextEditingController();
   final captureScroll = ScrollController();
+  final photoWizard = GlobalKey();
+  final photoGuideStart = GlobalKey();
   final taskUnderstanding = TaskUnderstanding();
   TaskModelAvailability? taskModel;
   bool generatingDrafts = false, draftsUseAI = false;
@@ -1675,6 +1677,20 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
+  void _showPhotoStep(GlobalKey key) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final step = key.currentContext;
+      if (mounted && step != null) {
+        unawaited(
+          Scrollable.ensureVisible(
+            step,
+            duration: const Duration(milliseconds: 250),
+          ),
+        );
+      }
+    });
+  }
+
   Future<void> scan(ImageSource source) async {
     if (!mobile) {
       fail(
@@ -1682,15 +1698,10 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
       );
       return;
     }
-    setState(() {
-      busy = true;
-      error = null;
-      draftingError = null;
-    });
+    setState(() => busy = true);
     TextRecognizer? recognizer;
     String? currentPath;
     var understoodPhoto = false;
-    setState(() { photoCategory = null; photoGuide = null; analyzedPhotoText = null; });
     try {
       final picked = await ImagePicker().pickImage(
         source: source,
@@ -1711,10 +1722,17 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
         photo = bytes;
         photoPath = picked.path;
         input.text = recognized.text;
+        error = null;
+        draftingError = null;
+        photoCategory = null;
+        photoGuide = null;
+        analyzedPhotoText = null;
       });
       understoodPhoto = recognized.text.trim().isNotEmpty;
       if (recognized.text.trim().isEmpty) {
-        fail('Please take a photo related to academic content, such as notes or a worksheet. If this is a diagram, add its question as text.');
+        fail(
+          'I couldn’t read any text. Try a clearer photo of your class material, or enter the question below.',
+        );
       }
     } catch (_) {
       fail(
@@ -1733,28 +1751,48 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
       }
       if (mounted) setState(() => busy = false);
     }
-    if (mounted && understoodPhoto && error == null) {
+    if (!mounted) return;
+    if (understoodPhoto && error == null) {
       await _analyzePhoto();
+    } else {
+      _showPhotoStep(photoWizard);
     }
   }
 
   Future<void> _analyzePhoto() async {
     if (busy) return;
-    if (taskModel?.available != true) {
-      fail('Photo understanding needs Apple Intelligence on a supported iPhone. You can remove the photo and enter study tasks manually.');
+    final source = input.text.trim();
+    if (source.isEmpty || source.length > TaskUnderstanding.maxInputLength) {
+      fail('Enter up to 3,000 characters of readable photo text to continue.');
+      _showPhotoStep(photoWizard);
       return;
     }
-    setState(() { busy = true; error = null; photoCategory = null; photoGuide = null; });
+    setState(() {
+      busy = true;
+      error = null;
+      photoCategory = null;
+      photoGuide = null;
+      analyzedPhotoText = null;
+    });
+    _showPhotoStep(photoWizard);
     try {
-      final source = input.text.trim();
-      final result = await taskUnderstanding.photoRequest('classifyPhoto', source);
+      if (taskModel?.available != true) await _refreshTaskModel();
+      if (!mounted) return;
+      if (taskModel?.available != true) {
+        fail(
+          'Photo understanding needs Apple Intelligence on a supported iPhone. You can remove the photo and enter study tasks manually.',
+        );
+        return;
+      }
+      final result = await taskUnderstanding.photoRequest(
+        'classifyPhoto',
+        source,
+      );
       if (!mounted) return;
       setState(() {
         analyzedPhotoText = source;
         photoCategory = result;
-        photoGoal = switch (result['contentType']) {
-          'problems' => 'solve', 'exam' => 'practice', _ => 'study',
-        };
+        photoGoal = recommendedPhotoGoal;
         if (result['category'] == 'nonAcademic') {
           error = 'Please take a photo related to academic content, such as a textbook, worksheet, or class notes.';
         } else if (result['category'] == 'unclear') {
@@ -1762,22 +1800,53 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
         }
       });
     } catch (_) {
-      fail('Unable to analyze this photo. Try a clearer photo or shorter text, then retry.');
+      fail(
+        'Unable to analyze this photo. Try a clearer photo or shorter text, then retry.',
+      );
     } finally {
       if (mounted) setState(() => busy = false);
+      _showPhotoStep(photoWizard);
     }
   }
 
+  String get recommendedPhotoGoal => switch (photoCategory?['contentType']) {
+    'problems' => 'solve',
+    'exam' => 'practice',
+    _ => 'study',
+  };
+
+  static String photoGoalLabel(String goal) => switch (goal) {
+    'solve' => 'Solve it step by step',
+    'practice' => 'Practice guide',
+    _ => 'Study guide',
+  };
+
   Future<void> _generatePhotoGuide() async {
     if (busy) return;
-    if (analyzedPhotoText != input.text.trim()) { await _analyzePhoto(); return; }
+    if (analyzedPhotoText != input.text.trim()) {
+      await _analyzePhoto();
+      return;
+    }
     if (photoCategory?['category'] != 'academic') return;
-    setState(() { busy = true; error = null; photoGuide = null; });
+    setState(() {
+      busy = true;
+      error = null;
+      photoGuide = null;
+    });
     try {
-      final result = await taskUnderstanding.photoRequest('photoGuide', analyzedPhotoText!, goal: photoGoal);
-      if (mounted) setState(() => photoGuide = result);
+      final result = await taskUnderstanding.photoRequest(
+        'photoGuide',
+        analyzedPhotoText!,
+        goal: photoGoal,
+      );
+      if (mounted) {
+        setState(() => photoGuide = result);
+        _showPhotoStep(photoGuideStart);
+      }
     } catch (_) {
-      fail('Unable to create your guide. Your photo text is still here. Please retry.');
+      fail(
+        'Unable to create your guide. Your photo text is still here. Please retry.',
+      );
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -1995,7 +2064,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                         : (v) => setState(() => mode = v.first),
                   ),
                   const SizedBox(height: 20),
-                  if (mode == 1) ...[
+                  if (mode == 1 || photo != null) ...[
                     Row(
                       children: [
                         Expanded(
@@ -2043,7 +2112,9 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                       const SizedBox(height: 12),
                       Text(speechStatus, semanticsLabel: speechStatus),
                     ],
-                    if (error != null && draftingError == null) ...[
+                    if (error != null &&
+                        photo == null &&
+                        draftingError == null) ...[
                       const SizedBox(height: 12),
                       Text(
                         error!,
@@ -2081,53 +2152,102 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                       ),
                     ),
                     TextButton(
-                      onPressed: busy ? null : () {
-                        setState(() {
-                          photo = null;
-                          photoPath = null;
-                          photoCategory = null;
-                          photoGuide = null;
-                          analyzedPhotoText = null;
-                          error = null;
-                        });
-                      },
-                      child: const Text('Remove photo preview'),
+                      onPressed: busy
+                          ? null
+                          : () {
+                              setState(() {
+                                photo = null;
+                                photoPath = null;
+                                photoCategory = null;
+                                photoGuide = null;
+                                analyzedPhotoText = null;
+                                error = null;
+                              });
+                            },
+                      child: const Text('Remove photo'),
                     ),
                   ],
                   if (photo != null) ...[
-                    const SizedBox(height: 16),
-                    TextButton.icon(
-                      onPressed: busy ? null : _analyzePhoto,
-                      icon: const Icon(Icons.auto_awesome),
-                      label: const Text('Analyze photo'),
+                    Text(
+                      'Photo guide',
+                      key: photoWizard,
+                      style: Theme.of(context).textTheme.titleLarge,
                     ),
+                    if (busy && !generatingDrafts && !listening)
+                      const LinearProgressIndicator(),
+                    if (error != null && draftingError == null)
+                      Text(error!, style: const TextStyle(color: muted)),
+                    if (photoCategory?['category'] == 'nonAcademic')
+                      OutlinedButton.icon(
+                        onPressed: busy ? null : () => scan(ImageSource.camera),
+                        icon: const Icon(Icons.camera_alt_outlined),
+                        label: const Text('Take another photo'),
+                      ),
+                    if (photoCategory == null ||
+                        photoCategory?['category'] == 'unclear')
+                      TextButton.icon(
+                        onPressed: busy ? null : _analyzePhoto,
+                        icon: const Icon(Icons.auto_awesome),
+                        label: const Text('Analyze photo text'),
+                      ),
                     if (photoCategory?['category'] == 'academic') ...[
-                      Text('${photoCategory!['subject']} · ${photoCategory!['topic']}',
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text(switch (photoCategory!['contentType']) {
-                        'problems' => 'These look like problems. Try a step-by-step explanation, or choose another goal.',
-                        'exam' => 'Prepare for this exam with related practice questions, or choose another goal.',
-                        _ => 'Build a study guide from this material, or choose another goal.',
-                      }),
+                      Text(
+                        '${photoCategory!['subject']} · ${photoCategory!['topic']}',
+                      ),
+                      const SizedBox(height: 12),
                       const Text('What would you like to do with this photo?'),
-                      for (final option in const [
-                        ('study', 'Study guide', 'Understand the key concepts and check recall'),
-                        ('practice', 'Practice guide', 'Try related questions with answer hints'),
-                        ('solve', 'Solve it step by step', 'Work through the problem with explanations'),
+                      for (final goal in [
+                        recommendedPhotoGoal,
+                        for (final goal in ['study', 'practice', 'solve'])
+                          if (goal != recommendedPhotoGoal) goal,
                       ])
                         ListTile(
                           contentPadding: EdgeInsets.zero,
-                          leading: Icon(photoGoal == option.$1 ? Icons.radio_button_checked : Icons.radio_button_off),
-                          title: Text(option.$2), subtitle: Text(option.$3),
-                          onTap: busy ? null : () => setState(() { photoGoal = option.$1; photoGuide = null; }),
+                          selected: photoGoal == goal,
+                          leading: Icon(
+                            photoGoal == goal
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_off,
+                          ),
+                          title: Text(
+                            goal == recommendedPhotoGoal
+                                ? '${photoGoalLabel(goal)} · Recommended'
+                                : photoGoalLabel(goal),
+                          ),
+                          subtitle: Text(switch (goal) {
+                            'solve' => 'Work through the photographed problem with explanations.',
+                            'practice' =>
+                              'Try new questions on ${photoCategory!['topic']} with answer hints.',
+                            _ =>
+                              'Review key ideas about ${photoCategory!['topic']} and check your recall.',
+                          }),
+                          onTap: busy
+                              ? null
+                              : () => setState(() {
+                                  photoGoal = goal;
+                                  photoGuide = null;
+                                  error = null;
+                                }),
                         ),
-                      FilledButton(onPressed: busy ? null : _generatePhotoGuide,
-                        child: const Text('Create my guide')),
+                      FilledButton(
+                        onPressed: busy ? null : _generatePhotoGuide,
+                        child: Text(switch (photoGoal) {
+                          'solve' => 'Show the solution',
+                          'practice' => 'Create practice questions',
+                          _ => 'Create a study guide',
+                        }),
+                      ),
                       if (photoGuide != null) ...[
                         const SizedBox(height: 16),
-                        Text(photoGuide!['title']!, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text(
+                          photoGuide!['title']!,
+                          key: photoGuideStart,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
                         SelectableText(photoGuide!['body']!),
-                        const Text('AI-generated from recognized text. Check the photo and verify the explanation.'),
+                        const Text(
+                          'AI-generated from recognized text. Check the photo and verify the explanation.',
+                        ),
                       ],
                     ],
                   ],
@@ -2136,11 +2256,14 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                     controller: input,
                     enabled: !busy,
                     onChanged: (_) {
-                      if (photo != null) setState(() {
-                        photoCategory = null;
-                        photoGuide = null;
-                        analyzedPhotoText = null;
-                      });
+                      if (photo != null) {
+                        setState(() {
+                          photoCategory = null;
+                          photoGuide = null;
+                          analyzedPhotoText = null;
+                          error = null;
+                        });
+                      }
                     },
                     minLines: 7,
                     maxLines: 14,
@@ -2205,6 +2328,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                   ),
                 ],
                 if (error != null &&
+                    (photo == null || drafts != null) &&
                     draftingError == null &&
                     (mode != 2 || drafts != null))
                   Padding(
@@ -2218,7 +2342,10 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                     ),
                   ),
                 const SizedBox(height: 20),
-                if (drafts == null && photo == null && error != null && draftingError == null)
+                if (drafts == null &&
+                    photo == null &&
+                    error != null &&
+                    draftingError == null)
                   TextButton(
                     onPressed: busy ? null : () => _createDrafts(basic: true),
                     child: const Text('Use basic splitting instead'),
@@ -2226,8 +2353,11 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
-                    onPressed: busy || taskModel == null ||
-                        (photo != null && photoCategory?['category'] != 'academic')
+                    onPressed:
+                        busy ||
+                            taskModel == null ||
+                            (photo != null &&
+                                photoCategory?['category'] != 'academic')
                         ? null
                         : () {
                             if (drafts == null) {

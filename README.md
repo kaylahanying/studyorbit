@@ -27,10 +27,11 @@ On supported iPhones, after taking or choosing a photo, on-device OCR extracts
 readable text and Apple Intelligence classifies its subject, topic and material
 (notes, reading, problems or exam). The wizard recommends a study guide for
 notes/reading, step-by-step solving for problems, or practice for exams. Students
-can choose any of the three goals and generate a guide before optionally creating
-reviewable planner tasks. Editing recognized text requires reclassification.
-Nonacademic text receives a friendly request to take an academic photo; unclear
-text prompts a clearer capture or added context. No task is automatically saved.
+see the detected subject and topic, with the recommended goal shown first.
+They can choose any of the three goals and generate a guide before optionally
+creating reviewable planner tasks. Editing recognized text requires reclassification.
+Nonacademic text receives a friendly request to take an academic photo and a
+retake button. Unclear text prompts a clearer capture or added context. No task is automatically saved.
 
 This analyzes **recognized text**, not image pixels: diagrams without readable
 text and OCR errors need a clearer capture or typed context. The 3,000-character

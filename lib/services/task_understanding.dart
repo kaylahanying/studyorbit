@@ -150,7 +150,7 @@ class TaskUnderstanding {
       final value = await channel.invokeMapMethod<String, dynamic>(method, {
         'text': source.trim(),
         'referenceDate': referenceDate,
-        if (goal != null) 'goal': goal,
+        'goal': ?goal,
       }).timeout(const Duration(seconds: 90));
       final keys = method == 'classifyPhoto'
           ? ['category', 'subject', 'topic', 'contentType'] : ['title', 'body'];

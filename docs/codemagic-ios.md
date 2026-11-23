@@ -2,7 +2,9 @@
 
 The `ios-testflight` workflow builds the `main` branch on a macOS machine,
 runs analysis and tests, obtains App Store signing resources, builds an IPA,
-and uploads it for TestFlight. Start it manually after credentials are configured.
+and uploads it for TestFlight. Start it manually after credentials are configured,
+or push a `testflight-*` tag on the release commit when the Codemagic webhook is
+configured to receive tag events.
 The existing **Internal** TestFlight group automatically receives every build
 through its App Store Connect settings. Do not list this internal group under
 `publishing.app_store_connect.beta_groups`: Apple's API rejects manual build

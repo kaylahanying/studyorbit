@@ -1,17 +1,106 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 import 'package:studyorbit/app.dart';
 import 'package:studyorbit/services/store.dart';
+import 'package:studyorbit/services/task_understanding.dart';
 
 void main() {
   setUp(() {
     SharedPreferencesAsyncPlatform.instance =
         InMemorySharedPreferencesAsync.empty();
   });
+  testWidgets(
+    'Photo wizard recommends a solution, preserves canceled captures, and rejects unrelated material',
+    (tester) async {
+      final messenger = tester.binding.defaultBinaryMessenger;
+      const picker = MethodChannel('plugins.flutter.io/image_picker');
+      const ocr = MethodChannel('google_mlkit_text_recognizer');
+      late Completer<void> classified;
+      var canceled = false;
+      var academic = true;
+      var classifyCalls = 0;
+      messenger.setMockMethodCallHandler(
+        picker,
+        (_) async => canceled ? null : 'web/icons/Icon-192.png',
+      );
+      messenger.setMockMethodCallHandler(
+        ocr,
+        (call) async => call.method == 'vision#startTextRecognizer'
+            ? {
+                'text': academic ? 'Solve x + 2 = 5' : 'Coffee menu',
+                'blocks': <Object>[],
+              }
+            : null,
+      );
+      messenger.setMockMethodCallHandler(TaskUnderstanding.channel, (
+        call,
+      ) async {
+        if (call.method == 'availability') return {'available': true};
+        if (call.method == 'classifyPhoto') {
+          classifyCalls++;
+          classified.complete();
+          return {
+            'category': academic ? 'academic' : 'nonAcademic',
+            'subject': academic ? 'Math' : 'Unknown',
+            'topic': academic ? 'Linear equations' : 'Coffee menu',
+            'contentType': academic ? 'problems' : 'other',
+          };
+        }
+        return null;
+      });
+      addTearDown(() {
+        for (final channel in [picker, ocr, TaskUnderstanding.channel]) {
+          messenger.setMockMethodCallHandler(channel, null);
+        }
+      });
+
+      await tester.pumpWidget(
+        const MaterialApp(home: CapturePage(mode: 1, deletePhotos: false)),
+      );
+      await tester.pumpAndSettle();
+      final camera = find.text('Take a photo');
+      Future<void> capture() async {
+        await tester.ensureVisible(camera);
+        await tester.runAsync(() async {
+          classified = Completer<void>();
+          await tester.tap(camera);
+          await classified.future.timeout(const Duration(seconds: 5));
+        });
+        await tester.pumpAndSettle();
+      }
+
+      await capture();
+      final recommended = find.text('Solve it step by step · Recommended');
+      expect(recommended, findsOneWidget);
+      expect(find.text('Show the solution'), findsOneWidget);
+
+      canceled = true;
+      await tester.ensureVisible(camera);
+      await tester.tap(camera);
+      await tester.pumpAndSettle();
+      expect(recommended, findsOneWidget);
+      expect(classifyCalls, 1);
+
+      canceled = false;
+      academic = false;
+      await capture();
+      expect(
+        find.textContaining('Please take a photo related to academic'),
+        findsOneWidget,
+      );
+      expect(find.text('Take another photo'), findsOneWidget);
+      expect(recommended, findsNothing);
+      expect(classifyCalls, 2);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
   testWidgets(
     'Phone: enter a task, confirm draft, persist it and navigate calendar',
     (tester) async {

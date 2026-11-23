@@ -297,6 +297,9 @@ private final class NativeTaskUnderstanding {
       worksheets, equations, class notes, essays, exams and school assignments.
       Receipts, menus, advertisements and personal messages are not academic.
       Use unclear when text is too fragmented to determine relevance.
+      Classify by the material's purpose. Use problems for exercises or questions to
+      solve, exam for tests or test-preparation material, notes for class summaries,
+      and reading for passages. Use other for academic material outside those types.
       Identify a concise specific topic and school subject without inventing details.
       """)
     let value = try await session.respond(to: text, generating: PhotoClassification.self,
